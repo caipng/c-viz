@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es6",
+    "outDir": "lib",
+    "lib": ["es6"],
+    "sourceMap": true,
+    "rootDir": "src",
+    "allowJs": true,
+    "noImplicitAny": true
+  },
+  "exclude": ["node_modules", "lib", "dist", ".eslintrc.cjs", "Gruntfile.js"],
+  "include": ["src"]
+}
