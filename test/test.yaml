@@ -1,0 +1,8 @@
+---
+helloworld:
+  file: "helloworld.c"
+  cases:
+    - in: "1"
+      out: "14"
+    - in: "2"
+      out: "14"
