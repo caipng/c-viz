@@ -1,11 +1,12 @@
 import { load } from "js-yaml";
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import cviz from "../src/entry";
 import { assert } from "chai";
 import { describe, it } from "mocha";
 import "../src/types";
 
 const TEST_FOLDER_PATH = "./test/";
+const TEST_OUTPUT_PATH = TEST_FOLDER_PATH + "out/";
 
 interface TestCase {
   in?: string;
@@ -38,7 +39,12 @@ for (const [testName, testSuite] of Object.entries(tests)) {
       if (testCase.desc) caseName += " (" + testCase.desc + ")";
 
       it(caseName, () => {
-        assert.equal(cviz.run(source), expectedOutput);
+        const out = cviz.run(source);
+        writeFileSync(
+          TEST_OUTPUT_PATH + testName + i + ".json",
+          JSON.stringify(out),
+        );
+        assert.equal(out, expectedOutput);
       });
     }
   });
