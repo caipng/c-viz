@@ -1,15 +1,78 @@
 {
-  function buildAST(a, b) {
+  function makeNode(type, props) {
+    const l = location();
+    return {
+      start: l["start"],
+      end: l["end"],
+      src: text(),
+      type,
+      ...props
+    };
+  }
+    
+  function makeBinaryExpNode(a, b) {
     if (b.length == 0) return a;
     const [op, right] = b.pop();
-    return {
-      type: "BinaryExpression",
-      left: buildAST(a, b),
+    return makeNode("BinaryExpression", {
+      left: makeBinaryExpNode(a, b),
       op,
       right
-    }
+    });
   }
 }
+
+// ==========
+// A.1.2 Keywords
+// ==========
+
+// (6.4.1) keyword
+Keyword
+    = ( "auto"
+      / "break"
+      / "case"
+      / "char"
+      / "const"
+      / "continue"
+      / "default"
+      / "do"
+      / "double"
+      / "else"
+      / "enum"
+      / "extern"
+      / "float"
+      / "for"
+      / "goto"
+      / "if"
+      / "inline"
+      / "int"
+      / "long"
+      / "register"
+      / "restrict"
+      / "return"
+      / "short"
+      / "signed"
+      / "sizeof"
+      / "static"
+      / "struct"
+      / "switch"
+      / "typedef"
+      / "union"
+      / "unsigned"
+      / "void"
+      / "volatile"
+      / "while"
+      / "_Alignas"
+      / "_Alignof"
+      / "_Atomic"
+      / "_Bool"
+      / "_Complex"
+      / "_Generic"
+      / "_Imaginary"
+      / "_Noreturn"
+      / "_Static_assert"
+      / "_Thread_local"
+      )
+    !IdChar ;
 
 // (6.8) statement
 start = a:Expression { return a; }
@@ -29,7 +92,7 @@ IntegerConstant
 // (6.4.4.1) decimal constant
 DecimalConstant
   = a:[1-9] b:[0-9]* {
-    return {type:'DecimalConstant', value:a + b.join("")};
+    return makeNode("DecimalConstant", {value: Number(a + b.join(""))});
   };
 
 // (6.4.4.2) floating-constant
@@ -39,10 +102,10 @@ FloatingConstant
 // (6.4.4.2) decimal-floating-constant:
 DecimalFloatingConstant
   = a:FractionalConstant b:ExponentPart? FloatingSuffix? {
-    return {type: 'DecimalFloatConstant', value: a + (b || '')};
+    return makeNode("DecimalFloatConstant", {value: Number(a + (b || ''))});
   }
   / a:[0-9]+ b:ExponentPart FloatingSuffix? {
-    return {type: 'DecimalFloatConstant', value: a.join('') + b};
+    return makeNode("DecimalFloatConstant", {value: Number(a.join('') + b)});
   }
 
 // (6.4.4.2) fractional-constant
@@ -82,8 +145,8 @@ MOD = a:"%" ![=] { return a; };
 
 // (6.5.1) primary-expression
 PrimaryExpression
-  = a:Constant { return {type: 'ConstantExpression', Expression: a}; }
-  / LPAR a:Expression RPAR { return {type: 'ParenthesesExpression', Expression: a}; }
+  = a:Constant { return makeNode('ConstantExpression', {expression: a}); }
+  / LPAR a:Expression RPAR { return makeNode('ParenthesesExpression', {expression: a}); }
 
 // (6.5.2) postfix-expression
 PostfixExpression
@@ -102,13 +165,13 @@ CastExpression
 // (6.5.5) multiplicative-expression
 MultiplicativeExpression
   = a:CastExpression b:((STAR / DIV / MOD) CastExpression)* {
-    return buildAST(a, b);
+    return makeBinaryExpNode(a, b);
   }
 
 // (6.5.6) additive-expression
 AdditiveExpression
   = a:MultiplicativeExpression b:((PLUS / MINUS) MultiplicativeExpression)* {
-    return buildAST(a, b);
+    return makeBinaryExpNode(a, b);
   }
 
 // (6.5.16) assignment-expression

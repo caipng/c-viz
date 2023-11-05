@@ -33,7 +33,7 @@ module.exports = (grunt) => {
     browserify: {
       dist: {
         files: {
-          "dist/cviz.js": ["lib/index.js"],
+          "dist/cviz.js": ["lib/export.js"],
         },
       },
     },

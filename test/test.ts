@@ -1,6 +1,6 @@
 import { load } from "js-yaml";
 import { readFileSync, writeFileSync } from "fs";
-import cviz from "../src/entry";
+import cviz from "../src/index";
 import { assert } from "chai";
 import { describe, it } from "mocha";
 import "../src/types";

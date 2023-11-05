@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-4bw+/aepP/YC94hEpVNVgiZdgIC5+VKNBQNGCHeKRQN+PtmoHDEXuppvnDJzQIu9" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js" integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm" crossorigin="anonymous"></script>
+    <script src="./cviz.js"></script>
+    <title>cviz</title>
+  </head>
+  <body>
+    <div class="container">
+      <br /><br />
+      <label>Output</label>
+      <pre id="output"></pre>
+      <script>
+        (function () {
+          const output = document.getElementById("output");
+          /*const t = Date.now();
+          try {
+              console.log(out);
+              output.innerText += "\n\n======\nProgram exited in " + (Date.now() - t) + "ms";
+          } catch (err) {
+              output.innerText += "\n\n======\nAn error occurred: " + (err.message || err);
+          }*/
+          let rt = cviz.run("1+2*(3/4.5)");
+          while (true) {
+            output.innerText += "Agenda: [";
+            for (const j of rt.agenda.arr) {
+              let s = JSON.stringify(j);
+              if (Object.hasOwn(j, "op")) s = "BinaryOp(" + j.op + ")";
+              if (Object.hasOwn(j, "src")) s = "ASTNode(\"" + j.src + "\")";
+              output.innerText += s + ", ";
+            }
+            output.innerText += "]\nStash: [";
+            for (const j of rt.stash.arr) output.innerText += JSON.stringify(j) + ", ";
+            output.innerText += "]\n\n";
+            if (rt.agenda.isEmpty()) break;
+            rt = cviz.next(rt);
+          }
+        })();
+      </script>
+  </body>
+</html>
