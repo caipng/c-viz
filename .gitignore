@@ -85,7 +85,6 @@ web_modules/
 
 # Next.js build output
 .next
-out
 
 # Nuxt.js build / generate output
 .nuxt
@@ -133,4 +132,3 @@ dist/*.js.map
 lib/
 .tscache
 src/cparser.js
-test/out/*
