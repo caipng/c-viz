@@ -13,7 +13,7 @@ export interface ASTNode {
   end: PositionInfo;
   src: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any; // todo: improve typing?
+  value: any; // todo: improve typing?
 }
 
 // const isASTNode = (i: AgendaItem): i is ASTNode => {
@@ -87,9 +87,15 @@ const agendaItemEvaluator: {
   [type: string]: (rt: Runtime, i: AgendaItem) => void;
 } = {
   BinaryExpression: (rt: Runtime, i: ASTNode) => {
-    rt.agenda.push(binaryOpInstruction(i.op, i));
-    rt.agenda.push(has(i.right, "expression") ? i.right.expression : i.right);
-    rt.agenda.push(has(i.left, "expression") ? i.left.expression : i.left);
+    rt.agenda.push(binaryOpInstruction(i.value.op, i));
+    rt.agenda.push(
+      has(i.value.right, "expression")
+        ? i.value.right.expression
+        : i.value.right,
+    );
+    rt.agenda.push(
+      has(i.value.left, "expression") ? i.value.left.expression : i.value.left,
+    );
   },
   Constant: (rt: Runtime, i: ASTNode) => {
     rt.stash.push(i.value);

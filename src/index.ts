@@ -3,12 +3,15 @@ import * as cparser from "./cparser";
 import { ASTNode, Runtime, evaluate, evaluateNext } from "./interpreter";
 
 export default {
-  run(source: string): Runtime {
+  parseProgram(source: string): ASTNode {
     const res = parse(cparser, source);
     if (res.error != null) {
-      throw new Error(errorMessage(res.error, true));
+      throw new Error("\n" + errorMessage(res.error, true));
     }
-    const program = res.ast as ASTNode;
+    return res.ast as ASTNode;
+  },
+  run(source: string): Runtime {
+    const program = this.parseProgram(source);
     return evaluate(program);
   },
   next(rt: Runtime): Runtime {

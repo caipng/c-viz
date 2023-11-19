@@ -1,8 +1,38 @@
 ---
-helloworld:
-  file: "helloworld.c"
+declaration:
+  file: "declaration.c"
   cases:
     - in: "1"
       out: "14"
     - in: "2"
       out: "14"
+struct_simple:
+  file: "struct_simple.c"
+  cases:
+    - in: "1"
+      out: "1"
+struct_nested:
+  file: "struct_nested.c"
+  cases:
+    - in: "1"
+      out: "1"
+struct_typedef:
+  file: "struct_typedef.c"
+  cases:
+    - in: "1"
+      out: "1"
+avl:
+  file: "avl.c"
+  cases:
+    - in: "1"
+      out: "1"
+trie:
+  file: "trie.c"
+  cases:
+    - in: "1"
+      out: "1"
+bloom_filter:
+  file: "bloom_filter.c"
+  cases:
+    - in: "1"
+      out: "1"
