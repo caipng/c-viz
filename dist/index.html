@@ -5,11 +5,127 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-4bw+/aepP/YC94hEpVNVgiZdgIC5+VKNBQNGCHeKRQN+PtmoHDEXuppvnDJzQIu9" crossorigin="anonymous">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js" integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm" crossorigin="anonymous"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/gh/vanillawc/wc-codemirror@1/index.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/gh/vanillawc/wc-codemirror@1.9.8/mode/clike/clike.js"></script>
+    <script src="https://unpkg.com/@alenaksu/json-viewer@2.0.0/dist/json-viewer.bundle.js"></script>
     <script src="./cviz.js"></script>
     <title>cviz</title>
+
+    <style>
+      .viz label {
+        width: 100%;
+        padding: 10px;
+      }
+      .viz div {
+        height: 400px;
+      }
+    </style>
   </head>
   <body>
+    <div class="container text-center">
+      <br />
+      <h1>cviz</h1>
+      <br />
+    </div>
+    <div class="container-fluid" style="width: 95%; margin-left: 2.5%;">
+      <div class="row" style="padding-bottom: 100px;">
+        <div class="col-4">
+          <wc-codemirror id="editor" mode="clike" class="border">
+              <script type="wc-content">
+struct point {
+  int x;
+  float y;
+  char * name;
+} a, b;
+
+int main() {
+  double PI = 3.14;
+  printf("Hello World");
+  return 0;
+}</script>
+          </wc-codemirror>
+          <br />
+          <div class="text-center">
+            <button type="button" class="btn btn-dark" onclick="run()">Run</button>
+            <button type="button" class="btn btn-secondary" onclick="location.reload()">Reset</button>
+          </div>
+        </div>
+        <div class="col-8">
+          <div class="container-fluid">
+            <div class="row">
+              <div class="col viz">
+                <div id="agenda" class="border"></div>
+                <label class="text-center">Agenda</label>
+              </div>
+              <div class="col viz">
+                <div id="stash" class="border"></div>
+                <label class="text-center">Stash</label>
+              </div>
+              <div class="col viz">
+                <div id="static-names" class="border"></div>
+                <label class="text-center">Static Names</label>
+              </div>
+            </div>
+            <div class="row" style="margin-top: 30px;">
+              <div class="col-5 viz">
+                <div id="stack" class="border"></div>
+                <label class="text-center">Stack</label>
+              </div>
+              <div class="col-7 viz">
+                <div id="heap" class="border"></div>
+                <label class="text-center">Heap</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="container">
+      <hr>
+      <div class="row">
+        <span class="text-center" style="padding-top: 50px; padding-bottom: 25px;">
+          <h4>Debugging Output</h4>
+        </span>
+        <pre id="time-taken-output"></pre>
+        <json-viewer id="AST-viewer"></json-viewer>
+        <pre id="error-output" class="text-danger border border-danger" style="white-space: pre-wrap; display: none; padding: 10px;"></pre>
+      </div>
+    </div>
+    <br /><br />
+    <script>
+      function run() {
+        const editor = document.getElementById("editor");
+        const ASTViewer = document.getElementById("AST-viewer");
+        const errorOutput = document.getElementById("error-output");
+        const timeTakenOutput = document.getElementById("time-taken-output");
+        const staticNames = document.getElementById("static-names");
+        const start = Date.now();
+        try { 
+          let rt = cviz.run(editor.value);
+          const timeTaken = Date.now() - start;
+
+          errorOutput.style.display = "none";
+
+          timeTakenOutput.innerText = "Time elapsed: " + timeTaken + "ms";
+          timeTakenOutput.style.display = "block";
+
+          ASTViewer.data = rt;
+          ASTViewer.style.display = "block";
+          ASTViewer.expand("AST.**");
+
+          staticNames.innerText = JSON.stringify(rt.staticNames);
+        } catch (err) {
+          ASTViewer.style.display = "none";
+          timeTakenOutput.style.display = "none";
+
+          errorOutput.innerText = err.toString();
+          errorOutput.style.display = "block";
+
+          staticNames.innerText = "";
+        }
+      }
+    </script>
+    <!--<div class="container">
       <br /><br />
       <label>Output</label>
       <pre id="output"></pre>
@@ -39,6 +155,6 @@
             rt = cviz.next(rt);
           }
         })();
-      </script>
+      </script>-->
   </body>
 </html>

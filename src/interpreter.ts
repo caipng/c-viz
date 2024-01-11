@@ -13,7 +13,7 @@ export interface ASTNode {
   end: PositionInfo;
   src: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  value: any; // todo: improve typing?
+  [key: string]: any; // todo: improve typing?
 }
 
 // const isASTNode = (i: AgendaItem): i is ASTNode => {
@@ -61,12 +61,29 @@ class Stash extends Stack<any> {}
 export interface Runtime {
   agenda: Agenda;
   stash: Stash;
+  staticNames: string[];
+  AST: ASTNode;
 }
 
 export function evaluate(program: ASTNode): Runtime {
+  const staticNames: string[] = [];
+  const declarationsAndfunctionDefinitions: ASTNode[] = program.value;
+  for (const i of declarationsAndfunctionDefinitions) {
+    if (i.type == "Declaration") {
+      if (i.declaratorList === null) continue;
+      for (const j of i.declaratorList) {
+        staticNames.push(j.declarator.directDeclarator.left.value);
+      }
+    }
+    if (i.type == "FunctionDefinition") {
+      staticNames.push(i.declarator.directDeclarator.left.value);
+    }
+  }
   return {
     agenda: new Agenda(program),
     stash: new Stash(),
+    staticNames,
+    AST: program,
   };
 }
 

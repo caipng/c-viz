@@ -862,8 +862,15 @@ TypeSpecifier
 
 // (6.7.2.1) struct-or-union-specifier
 StructOrUnionSpecifier
-  = StructOrUnion Identifier? LCUR StructDeclarationList RCUR
-  / StructOrUnion Identifier
+  = StructOrUnion a:Identifier? LCUR b:StructDeclarationList RCUR
+    {
+      return makeNode("StructOrUnion", {
+        identifier: a,
+        declarationList: b
+      });
+    }
+  / StructOrUnion a:Identifier
+    { return makeNode("StructOrUnion", a); }
 
 // (6.7.2.1) struct-or-union
 StructOrUnion
