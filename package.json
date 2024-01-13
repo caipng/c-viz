@@ -18,7 +18,11 @@
     ],
     "all": true
   },
-  "main": "src/commonjs.cjs",
+  "main": "lib/index",
+  "types": "lib/index",
+  "files": [
+    "lib"
+  ],
   "scripts": {
     "build": "grunt build",
     "format": "npx prettier . --write",
