@@ -22,4 +22,16 @@ export class Stack<T> {
     if (this.isEmpty()) throw new RangeError("peek at empty stack");
     return this.arr[this.size() - 1];
   }
+
+  getArr(): T[] {
+    return structuredClone(this.arr);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getIdentifierFromDeclarator(declarator: any): {
+  value: string;
+} {
+  const l = declarator.directDeclarator.left;
+  return l.type === "Identifier" ? l : getIdentifierFromDeclarator(l);
 }

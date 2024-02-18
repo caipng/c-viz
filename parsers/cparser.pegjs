@@ -1,36 +1,37 @@
 {
   function makeNode(type, value = null) {
-    if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
-      return { type, ...value };
-    }
-    return { type, value };
-  }
-
-  /*function makeNode(type, value = null) {
     const l = location();
-    return {
+    const node = {
       start: l["start"],
       end: l["end"],
       src: text(),
       type,
-      value
     };
-  }*/
+    if (
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      value !== null &&
+      !("type" in value)
+    ) {
+      return { ...node, ...value };
+    }
+    return { ...node, value };
+  }
 
   function makePostfixOp(type, arg = null) {
     return {
       type,
-      arg
+      arg,
     };
   }
-    
+
   function makeBinaryExpNode(a, b) {
     if (b.length == 0) return a;
     const [op, right] = b.pop();
     return makeNode("BinaryExpr", {
       left: makeBinaryExpNode(a, b),
       op,
-      right
+      right,
     });
   }
 }
@@ -235,7 +236,7 @@ IntegerConstant
 // (6.4.4.1) decimal-constant
 DecimalConstant
   = a:NonzeroDigit b:Digit*
-    { return makeNode("DecimalConstant", Number(a + b.join(""))); }
+    { return Number(a + b.join("")); }
 
 // (6.4.4.1) octal-constant
 OctalConstant
@@ -292,9 +293,9 @@ FloatingConstant
 // (6.4.4.2) decimal-floating-constant
 DecimalFloatingConstant
   = a:FractionalConstant b:ExponentPart? FloatingSuffix?
-    { return makeNode("DecimalFloatingConstant", Number(a + (b || ''))); }
+    { return Number(a + (b || '')); }
   / a:DigitSequence b:ExponentPart FloatingSuffix?
-    { return makeNode("DecimalFloatingConstant", Number(a.join('') + b)); }
+    { return Number(a.join('') + b); }
 
 // (6.4.4.2) hexadecimal-floating-constant
 HexadecimalFloatingConstant
@@ -356,7 +357,7 @@ EnumerationConstant
 // (6.4.4.4) character-constant
 CharacterConstant
   = [LuU]? "'" a:CCharSequence "'"
-    { return makeNode("CharacterConstant", a); }
+    { return a; }
 
 // (6.4.4.4) c-char-sequence
 CCharSequence

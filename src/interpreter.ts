@@ -1,4 +1,4 @@
-import { Stack } from "./utils";
+import { Stack, getIdentifierFromDeclarator } from "./utils";
 import { has } from "lodash";
 
 interface PositionInfo {
@@ -16,17 +16,22 @@ export interface ASTNode {
   [key: string]: any; // todo: improve typing?
 }
 
-// const isASTNode = (i: AgendaItem): i is ASTNode => {
-//   return (i as ASTNode).src !== undefined;
-// };
+export function isASTNode(i: AgendaItem): i is ASTNode {
+  return (i as ASTNode).src !== undefined;
+}
+
+export function isInstruction(i: AgendaItem): i is Instruction {
+  return !isASTNode(i);
+}
 
 enum InstructionType {
   BINARY_OP = "BinaryOperation",
+  POP = "Pop",
+  ASSIGN = "Assign",
 }
 
 interface BaseInstruction {
   type: InstructionType;
-  node: ASTNode;
 }
 
 type BinaryOperator = "+" | "-" | "*" | "/" | "%";
@@ -35,20 +40,29 @@ interface BinaryOpInstruction extends BaseInstruction {
   op: BinaryOperator;
 }
 
-const binaryOpInstruction = (
-  op: BinaryOperator,
-  node: ASTNode,
-): BinaryOpInstruction => ({
+const binaryOpInstruction = (op: BinaryOperator): BinaryOpInstruction => ({
   type: InstructionType.BINARY_OP,
   op,
-  node,
 });
 
-type Instruction = BinaryOpInstruction;
+interface PopInstruction extends BaseInstruction {}
 
-type AgendaItem = ASTNode | Instruction;
+const popInstruction = (): PopInstruction => ({ type: InstructionType.POP });
 
-class Agenda extends Stack<AgendaItem> {
+interface AssignInstruction extends BaseInstruction {
+  identifier: string;
+}
+
+const assignInstruction = (identifier: string): AssignInstruction => ({
+  type: InstructionType.ASSIGN,
+  identifier,
+});
+
+type Instruction = BinaryOpInstruction | PopInstruction;
+
+export type AgendaItem = ASTNode | Instruction;
+
+export class Agenda extends Stack<AgendaItem> {
   constructor(program: ASTNode) {
     super();
     this.push(program);
@@ -56,33 +70,27 @@ class Agenda extends Stack<AgendaItem> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-class Stash extends Stack<any> {}
+export class Stash extends Stack<any> {}
+
+export interface Declaration {
+  identifier: string;
+  specifiers: string;
+  isPtr: boolean;
+  value: unknown;
+}
 
 export interface Runtime {
   agenda: Agenda;
   stash: Stash;
-  staticNames: string[];
+  externalDeclarations: Declaration[];
   AST: ASTNode;
 }
 
 export function evaluate(program: ASTNode): Runtime {
-  const staticNames: string[] = [];
-  const declarationsAndfunctionDefinitions: ASTNode[] = program.value;
-  for (const i of declarationsAndfunctionDefinitions) {
-    if (i.type == "Declaration") {
-      if (i.declaratorList === null) continue;
-      for (const j of i.declaratorList) {
-        staticNames.push(j.declarator.directDeclarator.left.value);
-      }
-    }
-    if (i.type == "FunctionDefinition") {
-      staticNames.push(i.declarator.directDeclarator.left.value);
-    }
-  }
   return {
     agenda: new Agenda(program),
     stash: new Stash(),
-    staticNames,
+    externalDeclarations: [],
     AST: program,
   };
 }
@@ -91,37 +99,73 @@ export function evaluateNext(rt: Runtime): Runtime {
   if (rt.agenda.isEmpty()) throw new RangeError("agenda is empty");
   const i = rt.agenda.pop();
   const type = i.type in ASTNodeTypeAlias ? ASTNodeTypeAlias[i.type] : i.type;
+  if (!(type in agendaItemEvaluator)) {
+    throw new Error("not implemented");
+  }
   agendaItemEvaluator[type](rt, i);
   return rt;
 }
 
 const ASTNodeTypeAlias: { [type: string]: string } = {
-  DecimalConstant: "Constant",
-  DecimalFloatConstant: "Constant",
+  // DecimalConstant: "Constant",
+  // DecimalFloatConstant: "Constant",
 };
 
 const agendaItemEvaluator: {
   [type: string]: (rt: Runtime, i: AgendaItem) => void;
 } = {
-  BinaryExpression: (rt: Runtime, i: ASTNode) => {
-    rt.agenda.push(binaryOpInstruction(i.value.op, i));
-    rt.agenda.push(
-      has(i.value.right, "expression")
-        ? i.value.right.expression
-        : i.value.right,
-    );
-    rt.agenda.push(
-      has(i.value.left, "expression") ? i.value.left.expression : i.value.left,
-    );
+  TranslationUnit: (rt: Runtime, i: ASTNode) => {
+    const extDeclarations = i.value;
+    for (const i of extDeclarations.reverse()) {
+      rt.agenda.push(i);
+    }
   },
-  Constant: (rt: Runtime, i: ASTNode) => {
-    rt.stash.push(i.value);
+  Declaration: (rt: Runtime, { declaratorList, specifiers }: ASTNode) => {
+    if (declaratorList.length == 1) {
+      agendaItemEvaluator["InitDeclarator"](rt, {
+        ...declaratorList[0],
+        specifiers,
+      });
+      return;
+    }
+    for (const initDeclarator of declaratorList) {
+      rt.agenda.push({
+        ...initDeclarator,
+        specifiers,
+      } as ASTNode);
+    }
   },
-  [InstructionType.BINARY_OP]: (rt: Runtime, i: BinaryOpInstruction) => {
+  InitDeclarator: (
+    rt: Runtime,
+    { declarator, initializer, specifiers }: ASTNode,
+  ) => {
+    const { value: identifier } = getIdentifierFromDeclarator(declarator);
+    rt.externalDeclarations.push({
+      specifiers: specifiers.join(" "),
+      identifier: identifier,
+      isPtr: declarator.ptr !== null,
+      value: undefined,
+    });
+    if (initializer) {
+      rt.agenda.push(popInstruction());
+      rt.agenda.push(assignInstruction(identifier));
+      rt.agenda.push(initializer.value);
+    }
+  },
+  BinaryExpr: (rt: Runtime, { left, op, right }: ASTNode) => {
+    rt.agenda.push(binaryOpInstruction(op));
+    rt.agenda.push(has(right, "expression") ? right.expression : right);
+    rt.agenda.push(has(left, "expression") ? left.expression : left);
+  },
+  PrimaryExprConstant: (rt: Runtime, { value }: ASTNode) => {
+    if (typeof value === "object") throw new Error("not implemented");
+    rt.stash.push(value);
+  },
+  [InstructionType.BINARY_OP]: (rt: Runtime, { op }: BinaryOpInstruction) => {
     const right = rt.stash.pop();
     const left = rt.stash.pop();
     let res;
-    switch (i.op) {
+    switch (op) {
       case "+":
         res = left + right;
         break;
@@ -139,5 +183,19 @@ const agendaItemEvaluator: {
         break;
     }
     rt.stash.push(res);
+  },
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  [InstructionType.POP]: (rt: Runtime, _: PopInstruction) => {
+    rt.stash.pop();
+  },
+  [InstructionType.ASSIGN]: (
+    rt: Runtime,
+    { identifier }: AssignInstruction,
+  ) => {
+    for (const i of rt.externalDeclarations) {
+      if (i.identifier === identifier) {
+        i.value = rt.stash.peek();
+      }
+    }
   },
 };
