@@ -18,13 +18,6 @@
     return { ...node, value };
   }
 
-  function makePostfixOp(type, arg = null) {
-    return {
-      type,
-      arg,
-    };
-  }
-
   function makeBinaryExpNode(a, b) {
     if (b.length == 0) return a;
     const [op, right] = b.pop();
@@ -241,7 +234,7 @@ DecimalConstant
 // (6.4.4.1) octal-constant
 OctalConstant
   = "0" a:OctalDigit*
-    { return makeNode("OctalConstant", a.length ? a.join("") : "0"); }
+    { return a.length ? makeNode("OctalConstant", a.length ? a.join("") : "0") : 0; }
 
 // (6.4.4.1) hexadecimal-constant
 HexadecimalConstant
@@ -578,17 +571,17 @@ PostfixExpression
     )
     b:(
         LBRC x:Expression RBRC
-        { return makePostfixOp("ArraySubscripting", x); }
+        { return makeNode("ArraySubscripting", x); }
       / LPAR x:ArgumentExpressionList? RPAR
-        { return makePostfixOp("FunctionCall", x); }
+        { return makeNode("FunctionCall", x); }
       / DOT x:Identifier
-        { return makePostfixOp("StructMember", x); }
+        { return makeNode("StructMember", x); }
       / ARRW x:Identifier
-        { return makePostfixOp("PointerMember", x); }
+        { return makeNode("PointerMember", x); }
       / INCR
-        { return makePostfixOp("PostfixIncrement"); }
+        { return makeNode("PostfixIncrement"); }
       / DECR
-        { return makePostfixOp("PostfixDecrement"); }
+        { return makeNode("PostfixDecrement"); }
     )*
     {
       if (!b.length) return a;
@@ -1165,7 +1158,7 @@ BlockItem
 // (6.8.3) expression-statement
 ExpressionStatement
   = a:Expression? SEMI
-    { return makeNode("ExprStatement", a); }
+    { return a; }
 
 // (6.8.4) selection-statement
 SelectionStatement
