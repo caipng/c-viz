@@ -7,7 +7,7 @@
 
 /*--Node in the Trie--*/
 struct trie {
-    struct trie *children[ALPHABET_SIZE];
+    struct trie *children[26];
     bool end_of_word;
 };
 

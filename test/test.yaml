@@ -1,6 +1,6 @@
 ---
-declaration:
-  file: "declaration.c"
+assignment:
+  file: "assignment.c"
   cases:
     - in: "1"
       out: "14"
@@ -36,3 +36,8 @@ bloom_filter:
   cases:
     - in: "1"
       out: "1"
+declarations:
+  file: "declarations.c"
+  cases:
+    - in: "42"
+      out: "42"

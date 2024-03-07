@@ -1,4 +1,13 @@
 {
+  function isObject(value) {
+    return (
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      value !== null &&
+      !("type" in value)
+    );
+  }
+
   function makeNode(type, value = null) {
     const l = location();
     const node = {
@@ -7,12 +16,7 @@
       src: text(),
       type,
     };
-    if (
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      value !== null &&
-      !("type" in value)
-    ) {
+    if (isObject(value)) {
       return { ...node, ...value };
     }
     return { ...node, value };
@@ -26,6 +30,10 @@
       op,
       right,
     });
+  }
+
+  function throwNotImplemented(details = "") {
+    error("not implemented" + (details ? ": " + details : ""));
   }
 }
 
@@ -234,12 +242,19 @@ DecimalConstant
 // (6.4.4.1) octal-constant
 OctalConstant
   = "0" a:OctalDigit*
-    { return a.length ? makeNode("OctalConstant", a.length ? a.join("") : "0") : 0; }
+    {
+      if (a.length == 0) return 0;
+      throwNotImplemented("octal constant");
+      return makeNode("OctalConstant", a.join(""));
+    }
 
 // (6.4.4.1) hexadecimal-constant
 HexadecimalConstant
   = HexadecimalPrefix a:HexadecimalDigit+
-    { return makeNode("HexadecimalConstant", a.join("")); }
+    {
+      throwNotImplemented("hex constant");
+      return makeNode("HexadecimalConstant", a.join(""));
+    }
 
 // (6.4.4.1) hexadecimal-prefix
 HexadecimalPrefix
@@ -282,6 +297,7 @@ LongLongSuffix
 FloatingConstant
   = DecimalFloatingConstant
   / HexadecimalFloatingConstant
+    { throwNotImplemented("hex floating constant"); }
 
 // (6.4.4.2) decimal-floating-constant
 DecimalFloatingConstant
@@ -345,7 +361,11 @@ FloatingSuffix
 
 // (6.4.4.3) enumeration-constant
 EnumerationConstant
-  = a:Identifier { return makeNode("EnumerationConstant", a); }
+  = a:Identifier
+    {
+      throwNotImplemented("enums");
+      return makeNode("EnumerationConstant", a);
+    }
 
 // (6.4.4.4) character-constant
 CharacterConstant
@@ -391,7 +411,10 @@ HexadecimalEscapeSequence
 // (6.4.5) string-literal
 StringLiteral
   = a:EncodingPrefix? '"' b:SCharSequence? '"' _
-    { return makeNode("StringLiteral", { prefix: a, charSequence: b }); }
+    {
+      if (a) throwNotImplemented("encoding prefixes for string literal");
+      return b || [];
+    }
 
 // (6.4.5) encoding-prefix
 EncodingPrefix
@@ -536,6 +559,7 @@ PrimaryExpression
   / LPAR a:Expression RPAR
     { return makeNode('PrimaryExprParanthesis', a); }
   / GenericSelection
+    { throwNotImplemented("generic selection"); }
 
 // (6.5.1.1) generic-selection
 GenericSelection
@@ -562,6 +586,7 @@ PostfixExpression
       / LPAR a:TypeName RPAR
         LCUR b:InitializerList COMMA? RCUR
         {
+          throwNotImplemented("compound literals");
           // 6.5.2.5 Compound Literals
           return makeNode("CompoundLiteral", {
             type: a,
@@ -573,9 +598,12 @@ PostfixExpression
         LBRC x:Expression RBRC
         { return makeNode("ArraySubscripting", x); }
       / LPAR x:ArgumentExpressionList? RPAR
-        { return makeNode("FunctionCall", x); }
+        { return makeNode("FunctionCall", x || []); }
       / DOT x:Identifier
-        { return makeNode("StructMember", x); }
+        {
+          throwNotImplemented("structs");
+          return makeNode("StructMember", x);
+        }
       / ARRW x:Identifier
         { return makeNode("PointerMember", x); }
       / INCR
@@ -605,7 +633,7 @@ UnaryExpression
   = PostfixExpression
   / INCR a:UnaryExpression
     { return makeNode("UnaryExpressionIncr", a); }
-  / DECR UnaryExpression
+  / DECR a:UnaryExpression
     { return makeNode("UnaryExpressionDecr", a); }
   / a:UnaryOperator b:CastExpression
     {
@@ -615,11 +643,20 @@ UnaryExpression
       });
     }
   / SIZEOF a:UnaryExpression
-    { return makeNode("UnaryExpressionSizeofExpr", a); }
+    { 
+      throwNotImplemented("sizeof expr");
+      return makeNode("UnaryExpressionSizeofExpr", a);
+    }
   / SIZEOF LPAR a:TypeName RPAR
-    { return makeNode("UnaryExpressionSizeofType", a); }
+    {
+      throwNotImplemented("sizeof type");
+      return makeNode("UnaryExpressionSizeofType", a);
+    }
   / ALIGNOF LPAR a:TypeName RPAR
-    { return makeNode("UnaryExpressionAlignof", a); }
+    {
+      throwNotImplemented("alignof");
+      return makeNode("UnaryExpressionAlignof", a);
+    }
 
 // (6.5.3) unary-operator
 UnaryOperator
@@ -635,6 +672,7 @@ CastExpression
   = UnaryExpression
   / LPAR a:TypeName RPAR b:CastExpression
     {
+      throwNotImplemented("cast expressions");
       return makeNode("CastExpression", {
         type: a,
         expr: b
@@ -752,9 +790,7 @@ Expression
     {
       if (!b.length) return a;
       // 6.5.17 Comma operator
-      return makeNode("CommaOperator", {
-        exprs: [a].concat(b)
-      });
+      return makeNode("CommaOperator", [a].concat(b));
     }
 
 // (6.6) constant-expression
@@ -771,11 +807,11 @@ Declaration
     {
       return makeNode("Declaration", {
         specifiers: a,
-        declaratorList: b
+        declaratorList: b || []
       });
     }
   / a:StaticAssertDeclaration
-    { return makeNode("DeclarationStaticAssert", a); }
+    { throwNotImplemented("StaticAssertDeclaration"); }
 
 // (6.7) declaration-specifiers
 // Note the change from the standard to handle the TypedefName case
@@ -828,11 +864,17 @@ InitDeclarator
 // (6.7.1) storage-class-specifier
 StorageClassSpecifier
   = TYPEDEF
+    { throwNotImplemented("typedef"); }
   / EXTERN
+    { throwNotImplemented("extern storage class"); }
   / STATIC
+    { throwNotImplemented("static storage class"); }
   / THREADLOCAL
+    { throwNotImplemented("threadlocal storage class"); }
   / AUTO
+    { throwNotImplemented("auto storage class"); }
   / REGISTER
+    { throwNotImplemented("register storage class"); }
 
 // (6.7.2) type-specifier
 // Note that TypedefName has been removed as it leads to ambiguity in the grammar.
@@ -850,9 +892,13 @@ TypeSpecifier
   / UNSIGNED
   / BOOL
   / COMPLEX
+    { throwNotImplemented("complex type"); }
   / AtomicTypeSpecifier
+    { throwNotImplemented("atomic type"); }
   / StructOrUnionSpecifier
+    { throwNotImplemented("struct/union type"); }
   / EnumSpecifier
+    { throwNotImplemented("enum type"); }
 
 // (6.7.2.1) struct-or-union-specifier
 StructOrUnionSpecifier
@@ -923,88 +969,78 @@ AtomicTypeSpecifier
 TypeQualifier
   = CONST
   / RESTRICT
+    { throwNotImplemented("restrict type qualifier"); }
   / VOLATILE
+    { throwNotImplemented("volatile type qualifier"); }
   / ATOMIC
+    { throwNotImplemented("atomic type qualifier"); }
 
 // (6.7.4) function-specifier
 FunctionSpecifier
   = INLINE
+    { throwNotImplemented("inline function specifier"); }
   / NORETURN
+    { throwNotImplemented("noreturn function specifier"); }
 
 // (6.7.5) alignment-specifier
 AlignmentSpecifier
   = ALIGNAS LPAR (TypeName / ConstantExpression) RPAR
+    { throwNotImplemented("alignment specifier"); }
 
 // (6.7.6) declarator
 Declarator
   = a:Pointer? b:DirectDeclarator
     {
-      return makeNode("Declarator", {
-        ptr: a,
-        directDeclarator: b
-      });
+      return b.concat(a ? a.reverse() : []);
     }
 
 // (6.7.6) direct-declarator
 DirectDeclarator
   = a:(
-        a:Identifier { return makeNode("Identifier", a); }
+        a:Identifier { return [{ partType: "identifier", name: a }]; }
       / LPAR a:Declarator RPAR
         { return a; }
     )
     b:(
-        LBRC c:TypeQualifierList? d:AssignmentExpression? RBRC
+        LBRC c:IntegerConstant? RBRC
         {
-          return makeNode("DirectDeclaratorModifierArray", {
-            modifier: c || [],
-            expr: d
-          });
+          return { partType: "array", length: c };
+        }
+      / LBRC c:TypeQualifierList? d:AssignmentExpression? RBRC
+        {
+          throwNotImplemented("variable length array");
         }
       / LBRC STATIC c:TypeQualifierList? d:AssignmentExpression RBRC
         {
-          return makeNode("DirectDeclaratorModifierArray", {
-            modifier: ["static"].concat(c || []),
-            expr: d
-          });
+          throwNotImplemented("ISO/IEC 9899:TC3 6.7.5.3.7");
         }
       / LBRC c:TypeQualifierList STATIC d:AssignmentExpression RBRC
         {
-          return makeNode("DirectDeclaratorModifierArray", {
-            modifier: ["static"].concat(c),
-            expr: d
-          });
+          throwNotImplemented("ISO/IEC 9899:TC3 6.7.5.3.7");
         }
       / LBRC c:TypeQualifierList? STAR RBRC
         {
-          return makeNode("DirectDeclaratorModifierStarArray", {
-            modifier: ["*"].concat(c || [])
-          });
+          throwNotImplemented("variable length array type of unspecified size");
         }
       / LPAR c:ParameterTypeList RPAR
         {
-          return makeNode("DirectDeclaratorModifierParamTypeList", {
-            paramTypeList: c
-          });
+          return { partType: "function", argTypes: c };
         }
       / LPAR c:IdentifierList? RPAR
         {
-          return makeNode("DirectDeclaratorModifierIdentifierList", {
-            identifierList: c
-          });
+          if (c) throwNotImplemented("K & R C Style Function Declarations");
+          return { partType: "function", argTypes: [] };
         }
     )*
     {
-      return makeNode("DirectDeclarator", {
-        left: a,
-        right: b
-      });
+      return a.concat(b);
     }
 
 // (6.7.6) pointer
 Pointer
   = (
       STAR a:TypeQualifierList?
-      { return a; }
+      { return { partType: "ptr", qualifiers: a || [] }; }
     )+
 
 // (6.7.6) type-qualifier-list
@@ -1015,10 +1051,8 @@ TypeQualifierList
 ParameterTypeList
   = a:ParameterList b:(COMMA ELLIP)?
     {
-      return makeNode("ParameterTypeList", {
-        paramList: a,
-        varargs: b !== null
-      });
+      if (b) throwNotImplemented("variadic arguments");
+      return a;
     }
 
 // (6.7.6) parameter-list
@@ -1033,12 +1067,12 @@ ParameterList
 // (6.7.6) parameter-declaration
 ParameterDeclaration
   = a:DeclarationSpecifiers
-    b:(Declarator / AbstractDeclarator?)
+    b:(Declarator / AbstractDeclarator)?
     {
-      return makeNode("ParameterDeclaration", {
+      return {
         specifiers: a,
-        declarator: b
-      });
+        declarator: b || []
+      };
     }
 
 // (6.7.6) identifier-list
@@ -1062,31 +1096,39 @@ TypeName
 
 // (6.7.7) abstract-declarator
 AbstractDeclarator
-  = a:Pointer
-    { return makeNode("AbstractDeclaratorPointer", a); }
-  / a:Pointer? b:DirectAbstractDeclarator
+  = a:Pointer? b:DirectAbstractDeclarator
     {
-      return makeNode("AbstractDeclarator", {
-        ptr: a,
-        declarator: b
-      });
+      return b.concat(a ? a.reverse() : []);
     }
+  / a:Pointer
+    { return a.reverse(); }
 
 // (6.7.7) direct-abstract-declarator
 DirectAbstractDeclarator
   = LPAR a:AbstractDeclarator RPAR
     { return a; }
-  / (
+  / a:(
       LPAR a:AbstractDeclarator RPAR
       { return a; }
     )?
-    (
-        LBRC TypeQualifierList? AssignmentExpression? RBRC
+    b:(
+        LBRC c:IntegerConstant? RBRC
+        { return { partType: "array", length: c }; }
+      / LBRC TypeQualifierList? AssignmentExpression? RBRC
+        { throwNotImplemented("variable length array"); }
       / LBRC STATIC TypeQualifierList? AssignmentExpression RBRC
+        { throwNotImplemented("ISO/IEC 9899:TC3 6.7.5.3.7"); }
       / LBRC TypeQualifierList STATIC AssignmentExpression RBRC
+        { throwNotImplemented("ISO/IEC 9899:TC3 6.7.5.3.7"); }
       / LBRC STAR RBRC
-      / LPAR ParameterTypeList? RPAR
+        { throwNotImplemented("variable length array type of unspecified size"); }
+      / LPAR c:ParameterTypeList? RPAR
+        { return { partType: "function", argTypes: c || [] }; }
     )+
+    {
+      if (!a) return b;
+      return a.concat(b);
+    }
 
 // (6.7.8) typedef-name
 TypedefName
@@ -1095,9 +1137,9 @@ TypedefName
 // (6.7.9) initializer
 Initializer
   = a:AssignmentExpression
-    { return makeNode("InitializerExpr", a); }
+    { return a; }
   / LCUR a:InitializerList COMMA? RCUR
-    { return makeNode("InitializerArray", a); }
+    { throwNotImplemented("initializer list"); }
 
 // (6.7.9) initializer-list
 InitializerList
@@ -1129,10 +1171,13 @@ StaticAssertDeclaration
 // (6.8) statement
 Statement
   = LabeledStatement
+    { throwNotImplemented("goto and switch"); }
   / CompoundStatement
   / ExpressionStatement
   / SelectionStatement
+    { throwNotImplemented("if/else and switch"); }
   / IterationStatement
+    { throwNotImplemented("while and for loops"); }
   / JumpStatement
 
 // (6.8.1) labeled-statement
@@ -1144,7 +1189,7 @@ LabeledStatement
 // (6.8.2) compound-statement
 CompoundStatement
   = LCUR a:BlockItemList? RCUR
-    { return makeNode("CompoundStatement", a); }
+    { return makeNode("CompoundStatement", a || []); }
 
 // (6.8.2) block-item-list
 BlockItemList
@@ -1158,7 +1203,7 @@ BlockItem
 // (6.8.3) expression-statement
 ExpressionStatement
   = a:Expression? SEMI
-    { return a; }
+    { return a === null ? makeNode("EmptyExpressionStatement") : a; }
 
 // (6.8.4) selection-statement
 SelectionStatement
@@ -1223,11 +1268,13 @@ IterationStatement
 // (6.8.6) jump-statement
 JumpStatement
   = GOTO a:Identifier SEMI
-    { return makeNode("JumpStatementGoto", a); }
+    { throwNotImplemented("goto"); }
   / CONTINUE SEMI
-    { return makeNode("JumpStatementContinue"); }
+    { throwNotImplemented("while loops"); }
+    // { return makeNode("JumpStatementContinue"); }
   / BREAK SEMI
-    { return makeNode("JumpStatementBreak"); }
+    { throwNotImplemented("while loops"); }
+    // { return makeNode("JumpStatementBreak"); }
   / RETURN a:Expression? SEMI
     { return makeNode("JumpStatementReturn", a); }
 
@@ -1252,10 +1299,10 @@ FunctionDefinition
     c:DeclarationList?
     d:CompoundStatement
     {
+      if (c) throwNotImplemented("K & R C Style Function Declarations");
       return makeNode("FunctionDefinition", {
         specifiers: a,
         declarator: b,
-        declarationList: c,
         body: d
       });
     }
