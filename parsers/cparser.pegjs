@@ -231,30 +231,32 @@ Constant
 // (6.4.4.1) integer-constant
 IntegerConstant
   = a:(DecimalConstant / HexadecimalConstant / OctalConstant)
-    IntegerSuffix?
-    { return a; }
+    b:IntegerSuffix?
+    {
+      return makeNode("IntegerConstant", {
+        value: a.value,
+        isDecimal: a.isDecimal,
+        suffix: b || {}
+      });
+    }
 
 // (6.4.4.1) decimal-constant
 DecimalConstant
   = a:NonzeroDigit b:Digit*
-    { return Number(a + b.join("")); }
+    { return { isDecimal: true, value: BigInt(a + b.join("")) }; }
 
 // (6.4.4.1) octal-constant
 OctalConstant
   = "0" a:OctalDigit*
     {
-      if (a.length == 0) return 0;
-      throwNotImplemented("octal constant");
-      return makeNode("OctalConstant", a.join(""));
+      if (a.length == 0) return { isDecimal: false, value: BigInt(0) };
+      return { isDecimal: false, value: BigInt("0o" + a.join("")) };
     }
 
 // (6.4.4.1) hexadecimal-constant
 HexadecimalConstant
   = HexadecimalPrefix a:HexadecimalDigit+
-    {
-      throwNotImplemented("hex constant");
-      return makeNode("HexadecimalConstant", a.join(""));
-    }
+    { return { isDecimal: false, value: BigInt("0x" + a.join("")) }; }
 
 // (6.4.4.1) hexadecimal-prefix
 HexadecimalPrefix
@@ -277,25 +279,38 @@ HexadecimalDigit
 
 // (6.4.4.1) integer-suffix
 IntegerSuffix
-  = UnsignedSuffix (LongSuffix / LongLongSuffix)?
-  / (LongSuffix / LongLongSuffix) UnsignedSuffix?
+  = a:UnsignedSuffix b:(LongLongSuffix / LongSuffix)?
+    { 
+      if (b) return { ...a, ...b };
+      return a;
+    }
+  / a:(LongLongSuffix / LongSuffix) b:UnsignedSuffix?
+    { 
+      if (b) return { ...a, ...b };
+      return a;
+    }
 
 // (6.4.4.1) unsigned-suffix
 UnsignedSuffix
   = [uU]
+    { return { unsigned: true }; }
 
 // (6.4.4.1) long-suffix
 LongSuffix
   = [lL]
+    { return { long: true }; }
 
 // (6.4.4.1) long-long-suffix
 LongLongSuffix
   = "ll"
+    { return { longLong: true }; }
   / "LL"
+    { return { longLong: true }; }
 
 // (6.4.4.2) floating-constant
 FloatingConstant
   = DecimalFloatingConstant
+    { throwNotImplemented("decimal floating constant"); }
   / HexadecimalFloatingConstant
     { throwNotImplemented("hex floating constant"); }
 
@@ -370,7 +385,10 @@ EnumerationConstant
 // (6.4.4.4) character-constant
 CharacterConstant
   = [LuU]? "'" a:CCharSequence "'"
-    { return a; }
+    { 
+      throwNotImplemented("character constants");
+      return a;
+    }
 
 // (6.4.4.4) c-char-sequence
 CCharSequence
@@ -557,7 +575,7 @@ PrimaryExpression
   / a:StringLiteral
     { return makeNode('PrimaryExprString', a); }
   / LPAR a:Expression RPAR
-    { return makeNode('PrimaryExprParanthesis', a); }
+    { return makeNode('PrimaryExprParenthesis', a); }
   / GenericSelection
     { throwNotImplemented("generic selection"); }
 
@@ -600,10 +618,7 @@ PostfixExpression
       / LPAR x:ArgumentExpressionList? RPAR
         { return makeNode("FunctionCall", x || []); }
       / DOT x:Identifier
-        {
-          throwNotImplemented("structs");
-          return makeNode("StructMember", x);
-        }
+        { return makeNode("StructMember", x); }
       / ARRW x:Identifier
         { return makeNode("PointerMember", x); }
       / INCR
@@ -896,7 +911,6 @@ TypeSpecifier
   / AtomicTypeSpecifier
     { throwNotImplemented("atomic type"); }
   / StructOrUnionSpecifier
-    { throwNotImplemented("struct/union type"); }
   / EnumSpecifier
     { throwNotImplemented("enum type"); }
 
@@ -916,6 +930,7 @@ StructOrUnionSpecifier
 StructOrUnion
   = STRUCT
   / UNION
+    { throwNotImplemented("union"); }
 
 // (6.7.2.1) struct-declaration-list
 StructDeclarationList
@@ -968,6 +983,7 @@ AtomicTypeSpecifier
 // (6.7.3) type-qualifier
 TypeQualifier
   = CONST
+    { throwNotImplemented("const type qualifier"); }
   / RESTRICT
     { throwNotImplemented("restrict type qualifier"); }
   / VOLATILE
@@ -1040,7 +1056,7 @@ DirectDeclarator
 Pointer
   = (
       STAR a:TypeQualifierList?
-      { return { partType: "ptr", qualifiers: a || [] }; }
+      { return { partType: "ptr" }; }
     )+
 
 // (6.7.6) type-qualifier-list

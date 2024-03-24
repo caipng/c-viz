@@ -8,7 +8,7 @@ import {
   BinaryExpressionNode,
   PrimaryExprConstant,
   PostfixExpressionNode,
-  PrimaryExprParanthesis,
+  PrimaryExprParenthesis,
   FunctionCallOp,
   JumpStatementReturn,
   ConditionalExpressionNode,
@@ -302,6 +302,9 @@ const ASTNodeEvaluator: {
   PointerMember: () => {
     throw new Error("not implemented");
   },
+  StructMember: () => {
+    throw new Error("not implemented");
+  },
   PostfixIncrement: () => {
     throw new Error("not implemented");
   },
@@ -325,9 +328,9 @@ const ASTNodeEvaluator: {
   PrimaryExprString: () => {
     throw new Error("not implemented");
   },
-  PrimaryExprParanthesis: (
+  PrimaryExprParenthesis: (
     rt: Runtime,
-    { value: expr }: PrimaryExprParanthesis,
+    { value: expr }: PrimaryExprParenthesis,
   ) => {
     rt.agenda.push(expr);
   },
@@ -345,6 +348,8 @@ const instructionEvaluator: {
     let res;
     switch (op) {
       case "+":
+        // check overflow?
+        // unsigned types cannot overflow: 6.2.5.9
         res = left + right;
         break;
       case "-":

@@ -32,6 +32,9 @@ export interface Declaration {
   specifiers: DeclarationSpecifiers;
 }
 
+// https://en.cppreference.com/w/cpp/language/object
+// TODO: add size, alignment, etc?
+// TODO: Object representation and value representation (see pg 50)
 export interface RuntimeObject extends Declaration {
   identifier: Identifier;
   sizeof: number;

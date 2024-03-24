@@ -59,6 +59,11 @@ export function getRandAddress() {
   return Math.floor(Math.random() * 4294967295);
 }
 
+// rounds n up to the nearest multiple of m
+export function roundUpM(n: number, m: number) {
+  return Math.ceil(n / m) * m;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 // export function getParamsFromDeclarator(declarator: any): {
 //   varargs: boolean;

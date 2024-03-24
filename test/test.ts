@@ -1,6 +1,7 @@
 import { load } from "js-yaml";
 import { readFileSync, writeFileSync } from "fs";
 import cviz from "../src/index";
+import { typeTranslationUnit } from "../src/typing/main";
 import { assert } from "chai";
 import { describe, it } from "mocha";
 import "../src/types";
@@ -24,6 +25,11 @@ interface TestList {
   [testName: string]: TestSuite;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(BigInt.prototype as any).toJSON = function () {
+  return this.toString();
+};
+
 const tests = load(
   readFileSync(TEST_FOLDER_PATH + "test.yaml", "utf-8"),
 ) as TestList;
@@ -39,7 +45,7 @@ for (const [testName, testSuite] of Object.entries(tests)) {
       if (testCase.desc) caseName += " (" + testCase.desc + ")";
 
       it(caseName, () => {
-        const out = cviz.parseProgram(source);
+        const out = typeTranslationUnit(cviz.parseProgram(source));
         writeFileSync(
           TEST_OUTPUT_PATH + testName + i + ".json",
           JSON.stringify(out),
