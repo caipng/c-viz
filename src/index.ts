@@ -1,8 +1,9 @@
 import { parse, errorMessage } from "pegjs-util";
 import * as cparser from "./cparser";
-import { evaluate, evaluateNext } from "./interpreter/interpreter";
-import { TranslationUnit } from "./ast/types";
-import { Runtime } from "./interpreter/types";
+import { TranslationUnit, TypedTranslationUnit } from "./ast/types";
+import { typeTranslationUnit } from "./typing/main";
+import { Runtime } from "./interpreter/runtime";
+import { DEFAULT_CONFIG } from "./config";
 
 export default {
   parseProgram(source: string): TranslationUnit {
@@ -12,11 +13,16 @@ export default {
     }
     return res.ast as TranslationUnit;
   },
+  typeCheck(t: TranslationUnit): TypedTranslationUnit {
+    try {
+      return typeTranslationUnit(t);
+    } catch (err) {
+      throw new Error("" + err);
+    }
+  },
   run(source: string): Runtime {
     const program = this.parseProgram(source);
-    return evaluate(program);
-  },
-  next(rt: Runtime): Runtime {
-    return evaluateNext(rt);
+    const typedTranslationUnit = this.typeCheck(program);
+    return new Runtime(typedTranslationUnit, DEFAULT_CONFIG);
   },
 };

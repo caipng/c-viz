@@ -26,26 +26,28 @@ import {
 } from "./../constants";
 
 export enum Type {
-  _Bool,
-  Char,
-  SignedChar,
-  UnsignedChar,
-  ShortInt,
-  UnsignedShortInt,
-  Int,
-  UnsignedInt,
-  LongInt,
-  UnsignedLongInt,
-  LongLongInt,
-  UnsignedLongLongInt,
+  _Bool = "bool",
+  Char = "char",
+  SignedChar = "signed char",
+  UnsignedChar = "unsigned char",
+  ShortInt = "short",
+  UnsignedShortInt = "unsigned short",
+  Int = "int",
+  UnsignedInt = "unsigned",
+  LongInt = "long",
+  UnsignedLongInt = "unsigned long",
+  LongLongInt = "long long",
+  UnsignedLongLongInt = "unsigned long long",
 
-  Void,
+  Void = "void",
 
-  Array,
-  Structure,
-  Function,
-  Pointer,
+  Array = "array",
+  Structure = "struct",
+  Function = "function",
+  Pointer = "ptr",
 }
+
+export const getTypeName = (i: Type): string => i;
 
 // types are partitioned into object types (fully describes object),
 // function types (describes function), and incomplete types (lack info to determine sizes)
@@ -117,6 +119,9 @@ export type ScalarType = ArithmeticType | Pointer;
 
 export const isScalarType = (t: TypeInfo): t is ScalarType =>
   isArithmeticType(t) || isPointer(t);
+
+export const isSigned = (t: ScalarType): boolean =>
+  isChar(t) || isSignedIntegerType(t);
 
 export type AggregateType = Array | Structure;
 
@@ -267,7 +272,7 @@ export interface UnsignedInt extends ObjectTypeInfo {
   alignment: typeof UINT_ALIGN;
 }
 
-export const UnsignedInt = (): UnsignedInt => ({
+export const unsignedInt = (): UnsignedInt => ({
   type: Type.UnsignedInt,
   size: UINT_SIZE,
   alignment: UINT_ALIGN,
@@ -397,7 +402,7 @@ export const structure = (
     currAddr += m.type.size;
   }
   // add padding at end for array of struct
-  currAddr = roundUpM(currAddr, members[0].type.alignment);
+  currAddr = roundUpM(currAddr, strictestAlignment);
 
   const res: Structure = {
     type: Type.Structure,

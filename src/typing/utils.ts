@@ -60,8 +60,9 @@ export const constructDerivedTypes = (
         throw "cannot construct array from incomplete type";
       if (isFunctionTypeInfo(baseType))
         throw "cannot construct array from function type";
-      if (p.length <= 0) throw "array size must be a positive integer constant";
-      t = array(baseType, p.length);
+      if (p.length.value <= 0)
+        throw "array size must be a positive integer constant";
+      t = array(baseType, Number(p.length.value));
       break;
     }
     case "function": {
@@ -166,5 +167,10 @@ export const getMemberTypeInfo = (
       return m.type;
     }
   }
-  throw "member " + identifier + " does not exist on struct";
+  throw (
+    "member " +
+    identifier +
+    " does not exist on struct" +
+    (t.tag ? " " + t.tag : "")
+  );
 };

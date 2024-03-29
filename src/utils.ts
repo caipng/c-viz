@@ -1,4 +1,4 @@
-import { Declarator, Identifier, ParameterDeclaration } from "./ast/types";
+import { cloneDeep } from "lodash";
 
 export class Stack<T> {
   private arr: T[] = [];
@@ -26,37 +26,8 @@ export class Stack<T> {
   }
 
   getArr(): T[] {
-    return structuredClone(this.arr);
+    return cloneDeep(this.arr);
   }
-}
-
-export function getIdentifierFromDeclarator(
-  declarator: Declarator,
-): Identifier {
-  if (declarator.length === 0) throw "empty declarator";
-  const i = declarator[0];
-  if (i.partType != "identifier")
-    throw "expected identifier as first declarator part";
-  return i.name;
-}
-
-export function isFunctionDeclarator(declarator: Declarator) {
-  return declarator.length >= 2 && declarator[1].partType === "function";
-}
-
-export function getParamsFromFunctionDeclarator(
-  declarator: Declarator,
-): ParameterDeclaration[] {
-  if (declarator.length === 0) throw "empty declarator";
-  if (declarator.length === 1) throw "not function declarator";
-  const i = declarator[1];
-  if (i.partType != "function")
-    throw "expected function as second declarator part";
-  return i.argTypes;
-}
-
-export function getRandAddress() {
-  return Math.floor(Math.random() * 4294967295);
 }
 
 // rounds n up to the nearest multiple of m
@@ -64,26 +35,44 @@ export function roundUpM(n: number, m: number) {
   return Math.ceil(n / m) * m;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-// export function getParamsFromDeclarator(declarator: any): {
-//   varargs: boolean;
-//   params: ParameterDeclaration[];
-//   ok: boolean;
-// } {
-//   const modifiers = declarator.directDeclarator.right;
-//   if (
-//     !modifiers.length ||
-//     modifiers[0].type !== "DirectDeclaratorModifierParamTypeList"
-//   )
-//     return { varargs: false, params: [], ok: false };
-//   const { varargs, paramList } = modifiers[0].paramTypeList;
-//   const params: ParameterDeclaration[] = [];
-//   for (const p of paramList) {
-//     params.push({
-//       specifiers: p.specifiers.join(" "),
-//       identifier: getIdentifierFromDeclarator(p.declarator).value,
-//       isPtr: p.declarator.ptr !== null,
-//     });
-//   }
-//   return { varargs, params, ok: true };
-// }
+type ErrorWithMessage = {
+  message: string;
+};
+
+function isErrorWithMessage(error: unknown): error is ErrorWithMessage {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as Record<string, unknown>).message === "string"
+  );
+}
+
+function toErrorWithMessage(maybeError: unknown): ErrorWithMessage {
+  if (isErrorWithMessage(maybeError)) return maybeError;
+
+  try {
+    return new Error(JSON.stringify(maybeError));
+  } catch {
+    // fallback in case there's an error stringifying the maybeError
+    // like with circular references for example.
+    return new Error(String(maybeError));
+  }
+}
+
+export function getErrorMessage(error: unknown) {
+  return toErrorWithMessage(error).message;
+}
+
+export function checkValidByte(i: number) {
+  if (Number.isInteger(i) && 0 <= i && i < 1 << 8) return;
+  throw (
+    "invalid byte " +
+    i +
+    " provided, expected a non-negative integer in [0, 2^8)"
+  );
+}
+
+export function mod(a: bigint, b: bigint): bigint {
+  return ((a % b) + b) % b;
+}

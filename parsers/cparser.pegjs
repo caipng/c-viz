@@ -902,7 +902,9 @@ TypeSpecifier
   / INT
   / LONG
   / FLOAT
+    { throwNotImplemented("floating type"); }
   / DOUBLE
+    { throwNotImplemented("floating type"); }
   / SIGNED
   / UNSIGNED
   / BOOL
@@ -918,13 +920,18 @@ TypeSpecifier
 StructOrUnionSpecifier
   = StructOrUnion a:Identifier? LCUR b:StructDeclarationList RCUR
     {
-      return makeNode("StructOrUnion", {
+      return makeNode("StructSpecifier", {
         identifier: a,
         declarationList: b
       });
     }
   / StructOrUnion a:Identifier
-    { return makeNode("StructOrUnion", a); }
+    {
+      return makeNode("StructSpecifier", {
+        identifier: a,
+        declarationList: []
+      });
+    }
 
 // (6.7.2.1) struct-or-union
 StructOrUnion
@@ -938,8 +945,15 @@ StructDeclarationList
 
 // (6.7.2.1) struct-declaration
 StructDeclaration
-  = SpecifierQualifierList StructDeclaratorList? SEMI
+  = a:SpecifierQualifierList b:StructDeclaratorList? SEMI
+    {
+      return makeNode("Declaration", {
+        specifiers: a,
+        declaratorList: b || []
+      });
+    }
   / StaticAssertDeclaration
+    { throwNotImplemented("static assert declaration"); }
 
 // (6.7.2.1) specifier-qualifier-list
 // Note the change from the standard to handle the TypedefName case
@@ -947,6 +961,7 @@ SpecifierQualifierList
   = (TypeQualifier / AlignmentSpecifier)*
     TypedefName
     (TypeQualifier / AlignmentSpecifier)*
+    { throwNotImplemented("typedef"); }
   / (
         TypeSpecifier
       / TypeQualifier
@@ -955,12 +970,20 @@ SpecifierQualifierList
 
 // (6.7.2.1) struct-declarator-list
 StructDeclaratorList
-  = StructDeclarator (COMMA StructDeclarator)*
+  = a:StructDeclarator b:(COMMA b:StructDeclarator { return b; })*
+    { return [a].concat(b || []); }
 
 // (6.7.2.1) struct-declarator
 StructDeclarator
-  = Declarator
+  = a:Declarator
+    {
+      return makeNode("InitDeclarator", {
+        declarator: a,
+        initializer: null
+      });
+    }
   / Declarator? COLON ConstantExpression
+    { throwNotImplemented("bitfield"); }
 
 // (6.7.2.2) enum-specifier
 EnumSpecifier

@@ -1,7 +1,14 @@
-import { BinaryOperator, Expression, Identifier } from "../ast/types";
-import { AgendaItem, isInstruction } from "./types";
+import {
+  BinaryOperator,
+  TypedExpression,
+  Identifier,
+  UnaryOperator,
+} from "../ast/types";
+import { ArithmeticType, ObjectTypeInfo } from "../typing/types";
+import { AgendaItem, isInstruction } from "./agenda";
 
 export enum InstructionType {
+  UNARY_OP = "UnaryOp",
   BINARY_OP = "BinaryOp",
   POP = "Pop",
   ASSIGN = "Assign",
@@ -10,11 +17,22 @@ export enum InstructionType {
   CALL = "Call",
   RETURN = "Return",
   BRANCH = "Branch",
+  ARITHMETIC_CONVERSION = "ArithmeticConversion",
 }
 
 export interface BaseInstruction {
   type: InstructionType;
 }
+
+export interface UnaryOpInstruction extends BaseInstruction {
+  type: InstructionType.UNARY_OP;
+  op: UnaryOperator;
+}
+
+export const unaryOpInstruction = (op: UnaryOperator): UnaryOpInstruction => ({
+  type: InstructionType.UNARY_OP,
+  op,
+});
 
 export interface BinaryOpInstruction extends BaseInstruction {
   type: InstructionType.BINARY_OP;
@@ -39,13 +57,16 @@ export const popInstruction = (): PopInstruction => ({
 export interface AssignInstruction extends BaseInstruction {
   type: InstructionType.ASSIGN;
   identifier: Identifier;
+  typeInfo: ObjectTypeInfo;
 }
 
 export const assignInstruction = (
   identifier: Identifier,
+  typeInfo: ObjectTypeInfo,
 ): AssignInstruction => ({
   type: InstructionType.ASSIGN,
   identifier,
+  typeInfo,
 });
 
 export interface MarkInstruction extends BaseInstruction {
@@ -91,20 +112,33 @@ export const returnInstruction = (): ReturnInstruction => ({
 
 export interface BranchInstruction extends BaseInstruction {
   type: InstructionType.BRANCH;
-  exprIfTrue: Expression;
-  exprIfFalse: Expression;
+  exprIfTrue: TypedExpression;
+  exprIfFalse: TypedExpression;
 }
 
 export const branchInstruction = (
-  exprIfTrue: Expression,
-  exprIfFalse: Expression,
+  exprIfTrue: TypedExpression,
+  exprIfFalse: TypedExpression,
 ): BranchInstruction => ({
   type: InstructionType.BRANCH,
   exprIfTrue,
   exprIfFalse,
 });
 
+export interface ArithmeticConversionInstruction extends BaseInstruction {
+  type: InstructionType.ARITHMETIC_CONVERSION;
+  typeInfo: ArithmeticType;
+}
+
+export const arithmeticConversionInstruction = (
+  typeInfo: ArithmeticType,
+): ArithmeticConversionInstruction => ({
+  type: InstructionType.ARITHMETIC_CONVERSION,
+  typeInfo,
+});
+
 export type Instruction =
+  | UnaryOpInstruction
   | BinaryOpInstruction
   | PopInstruction
   | MarkInstruction
@@ -112,4 +146,5 @@ export type Instruction =
   | CallInstruction
   | ReturnInstruction
   | BranchInstruction
-  | AssignInstruction;
+  | AssignInstruction
+  | ArithmeticConversionInstruction;

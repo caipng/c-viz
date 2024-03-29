@@ -1,4 +1,8 @@
-import { DeclarationSpecifiers } from "../ast/types";
+import {
+  DeclarationSpecifiers,
+  StructSpecifier,
+  isStructSpecifier,
+} from "../ast/types";
 import {
   CHAR_MAX,
   CHAR_MIN,
@@ -19,23 +23,31 @@ import {
   USHRT_MAX,
 } from "../constants";
 import {
+  IntegerType,
+  Structure,
+  StructureMember,
   TypeInfo,
-  UnsignedInt,
+  unsignedInt,
+  Void,
   _bool,
   char,
+  getTypeName,
   int,
+  isObjectTypeInfo,
   longInt,
   longLongInt,
   shortInt,
   signedChar,
+  structure,
   unsignedChar,
   unsignedLongInt,
   unsignedLongLongInt,
   unsignedShortInt,
   voidType,
 } from "./types";
+import { constructType } from "./utils";
 
-export const TYPE_SPECIFIER_TO_TYPE_INFO: Record<string, TypeInfo> = {
+export const TYPE_SPECIFIER_TO_TYPE_INFO: Record<string, IntegerType | Void> = {
   void: voidType(),
 
   char: char(),
@@ -56,8 +68,8 @@ export const TYPE_SPECIFIER_TO_TYPE_INFO: Record<string, TypeInfo> = {
   signed: int(),
   "signed int": int(),
 
-  unsigned: UnsignedInt(),
-  "unsigned int": UnsignedInt(),
+  unsigned: unsignedInt(),
+  "unsigned int": unsignedInt(),
 
   long: longInt(),
   "signed long": longInt(),
@@ -79,7 +91,7 @@ export const TYPE_SPECIFIER_TO_TYPE_INFO: Record<string, TypeInfo> = {
 };
 
 export const TYPE_SPECIFIER_TO_NUMERICAL_LIMIT: Record<
-  string,
+  keyof typeof TYPE_SPECIFIER_TO_TYPE_INFO,
   [bigint, bigint]
 > = {
   char: [CHAR_MIN, CHAR_MAX],
@@ -130,6 +142,13 @@ export const getTypeInfoFromSpecifiers = (
 ): TypeInfo => {
   if (ls.length === 0) throw "at least one type specifier must be given";
 
+  const n = ls.reduce((A, i) => (isStructSpecifier(i) ? A + 1 : A), 0);
+  if (n > 1) throw "more than 1 struct specifier";
+  if (n === 1) {
+    if (ls.length !== 1) throw "struct specifier should be the only specifier";
+    return constructStructFromSpecifier(ls[0] as StructSpecifier);
+  }
+
   const s = ls.join(" ");
   for (const specifier in TYPE_SPECIFIER_TO_TYPE_INFO) {
     if (unorderedCompare(s, specifier)) {
@@ -138,9 +157,33 @@ export const getTypeInfoFromSpecifiers = (
   }
 
   throw (
-    "unknown type specifier, expected one of " +
+    "unknown type specifier " +
+    JSON.stringify(ls) +
+    ", expected one of " +
     JSON.stringify(Object.keys(TYPE_SPECIFIER_TO_TYPE_INFO))
   );
+};
+
+const constructStructFromSpecifier = (s: StructSpecifier): Structure => {
+  if (s.declarationList.length === 0)
+    throw "struct specifier cannot be empty (forward declarations are not supported)";
+
+  const tag = s.identifier || undefined;
+  const members: StructureMember[] = [];
+
+  for (const d of s.declarationList) {
+    for (const id of d.declaratorList) {
+      const { identifier: name, type } = constructType(
+        d.specifiers,
+        id.declarator,
+      );
+      if (!isObjectTypeInfo(type)) throw "non object type declared in struct";
+      if (name) members.push({ name, type });
+      else members.push({ type });
+    }
+  }
+
+  return structure(members, tag);
 };
 
 export const getNumericalLimitFromSpecifiers = (
@@ -153,7 +196,16 @@ export const getNumericalLimitFromSpecifiers = (
   }
 
   throw (
-    "unknown type specifier, expected one of " +
+    "unknown type specifier " +
+    s +
+    ", expected one of " +
     JSON.stringify(Object.keys(TYPE_SPECIFIER_TO_NUMERICAL_LIMIT))
   );
+};
+
+export const typeInfoToSpecifier = (typeInfo: IntegerType | Void): string => {
+  for (const [specifier, t] of Object.entries(TYPE_SPECIFIER_TO_TYPE_INFO)) {
+    if (t.type === typeInfo.type) return specifier;
+  }
+  throw "type " + getTypeName(typeInfo.type) + " has no specifier";
 };

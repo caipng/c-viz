@@ -1,4 +1,9 @@
-import { FunctionType, TypeInfo } from "../typing/types";
+import {
+  FunctionType,
+  ObjectTypeInfo,
+  ScalarType,
+  TypeInfo,
+} from "../typing/types";
 
 export interface PositionInfo {
   offset: number;
@@ -38,7 +43,35 @@ export type ASTNode =
   | PrimaryExprIdentifier
   | PrimaryExprConstant
   | PrimaryExprString
-  | PrimaryExprParenthesis;
+  | PrimaryExprParenthesis
+  | IntegerConstant;
+
+export type TypedASTNode =
+  | TypedTranslationUnit
+  | TypedFunctionDefinition
+  | TypedDeclaration
+  | TypedInitDeclarator
+  | TypedCompoundStatement
+  | TypedJumpStatementReturn
+  | EmptyExpressionStatement
+  | TypedCommaOperator
+  | TypedAssignmentExpressionNode
+  | TypedConditionalExpressionNode
+  | TypedBinaryExpressionNode
+  | TypedUnaryExpressionIncr
+  | TypedUnaryExpressionDecr
+  | TypedUnaryExpressionNode
+  | TypedPostfixExpressionNode
+  | TypedArraySubscriptingOp
+  | TypedFunctionCallOp
+  | TypedPointerMemberOp
+  | TypedStructMemberOp
+  | TypedPostfixIncrementOp
+  | TypedPostfixDecrementOp
+  | TypedPrimaryExprIdentifier
+  | TypedPrimaryExprConstant
+  | TypedPrimaryExprString
+  | TypedPrimaryExprParenthesis;
 
 export interface TranslationUnit extends BaseNode {
   type: "TranslationUnit";
@@ -95,11 +128,19 @@ export type TypeSpecifier =
   | "short"
   | "int"
   | "long"
-  | "float"
-  | "double"
   | "signed"
   | "unsigned"
-  | "_Bool";
+  | "_Bool"
+  | StructSpecifier;
+
+export interface StructSpecifier extends BaseNode {
+  type: "StructSpecifier";
+  identifier: Identifier | null;
+  declarationList: Declaration[];
+}
+
+export const isStructSpecifier = (i: TypeSpecifier): i is StructSpecifier =>
+  typeof i === "object";
 
 export interface InitDeclarator extends BaseNode {
   type: "InitDeclarator";
@@ -110,7 +151,7 @@ export interface InitDeclarator extends BaseNode {
 export interface TypedInitDeclarator extends BaseNode {
   type: "InitDeclarator";
   identifier: Identifier;
-  typeInfo: TypeInfo;
+  typeInfo: ObjectTypeInfo;
   initializer: TypedInitializer | null;
 }
 
@@ -146,7 +187,7 @@ export const isIdentifierDeclaratorPart = (
 
 export interface ArrayDeclaratorPart {
   partType: "array";
-  length: number;
+  length: IntegerConstant;
 }
 
 export const isArrayDeclaratorPart = (
@@ -568,6 +609,7 @@ export const isPrimaryExprIdentifier = (
 export interface TypedPrimaryExprIdentifier extends TypedExpressionBaseNode {
   type: "PrimaryExprIdentifier";
   value: Identifier;
+  typeInfo: ObjectTypeInfo | FunctionType;
 }
 
 export interface PrimaryExprConstant extends BaseNode {
@@ -630,6 +672,7 @@ export interface IntegerConstant extends BaseNode {
 export interface TypedIntegerConstant extends TypedExpressionBaseNode {
   type: "IntegerConstant";
   value: bigint;
+  typeInfo: ScalarType;
 }
 
 export const isTypedIntegerConstant = (
