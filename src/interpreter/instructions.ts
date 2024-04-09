@@ -1,16 +1,13 @@
-import {
-  BinaryOperator,
-  TypedExpression,
-  Identifier,
-  UnaryOperator,
-} from "../ast/types";
-import { ArithmeticType, ObjectTypeInfo } from "../typing/types";
+import { BinaryOperator, TypedExpression, UnaryOperator } from "../ast/types";
+import { ArithmeticType, ScalarType, Void } from "../typing/types";
 import { AgendaItem, isInstruction } from "./agenda";
+import { StashItem } from "./stash";
 
 export enum InstructionType {
   UNARY_OP = "UnaryOp",
   BINARY_OP = "BinaryOp",
   POP = "Pop",
+  PUSH = "Push",
   ASSIGN = "Assign",
   MARK = "Mark",
   EXIT = "Exit",
@@ -18,6 +15,8 @@ export enum InstructionType {
   RETURN = "Return",
   BRANCH = "Branch",
   ARITHMETIC_CONVERSION = "ArithmeticConversion",
+  CAST = "Cast",
+  ARRAY_SUBSCRIPT = "ArraySubscript",
 }
 
 export interface BaseInstruction {
@@ -54,19 +53,22 @@ export const popInstruction = (): PopInstruction => ({
   type: InstructionType.POP,
 });
 
-export interface AssignInstruction extends BaseInstruction {
-  type: InstructionType.ASSIGN;
-  identifier: Identifier;
-  typeInfo: ObjectTypeInfo;
+export interface PushInstruction extends BaseInstruction {
+  type: InstructionType.PUSH;
+  item: StashItem;
 }
 
-export const assignInstruction = (
-  identifier: Identifier,
-  typeInfo: ObjectTypeInfo,
-): AssignInstruction => ({
+export const pushInstruction = (item: StashItem): PushInstruction => ({
+  type: InstructionType.PUSH,
+  item,
+});
+
+export interface AssignInstruction extends BaseInstruction {
+  type: InstructionType.ASSIGN;
+}
+
+export const assignInstruction = (): AssignInstruction => ({
   type: InstructionType.ASSIGN,
-  identifier,
-  typeInfo,
 });
 
 export interface MarkInstruction extends BaseInstruction {
@@ -110,6 +112,9 @@ export const returnInstruction = (): ReturnInstruction => ({
   type: InstructionType.RETURN,
 });
 
+export const isReturnInstruction = (i: AgendaItem): i is ReturnInstruction =>
+  isInstruction(i) && i.type === InstructionType.RETURN;
+
 export interface BranchInstruction extends BaseInstruction {
   type: InstructionType.BRANCH;
   exprIfTrue: TypedExpression;
@@ -137,14 +142,38 @@ export const arithmeticConversionInstruction = (
   typeInfo,
 });
 
+export interface CastInstruction extends BaseInstruction {
+  type: InstructionType.CAST;
+  targetType: Void | ScalarType;
+}
+
+export const castInstruction = (
+  targetType: Void | ScalarType,
+): CastInstruction => ({ type: InstructionType.CAST, targetType });
+
+export interface ArraySubscriptInstruction extends BaseInstruction {
+  type: InstructionType.ARRAY_SUBSCRIPT;
+  evaluateAsLvalue: boolean;
+}
+
+export const arraySubscriptInstruction = (
+  evaluateAsLvalue: boolean = false,
+): ArraySubscriptInstruction => ({
+  type: InstructionType.ARRAY_SUBSCRIPT,
+  evaluateAsLvalue,
+});
+
 export type Instruction =
   | UnaryOpInstruction
   | BinaryOpInstruction
   | PopInstruction
+  | PushInstruction
   | MarkInstruction
   | ExitInstruction
   | CallInstruction
   | ReturnInstruction
   | BranchInstruction
   | AssignInstruction
-  | ArithmeticConversionInstruction;
+  | ArithmeticConversionInstruction
+  | CastInstruction
+  | ArraySubscriptInstruction;

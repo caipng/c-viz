@@ -50,3 +50,4 @@ export const LONG_ALIGN = 1 << 2;
 export const ULONG_ALIGN = LONG_ALIGN;
 export const LLONG_ALIGN = 1 << 3; // windows and linux differs
 export const ULLONG_ALIGN = LLONG_ALIGN;
+export const MAX_ALIGN = LLONG_ALIGN;

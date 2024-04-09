@@ -1,4 +1,8 @@
-import { TypedCompoundStatement, TypedTranslationUnit } from "../ast/types";
+import {
+  Identifier,
+  TypedCompoundStatement,
+  TypedTranslationUnit,
+} from "../ast/types";
 import { Memory } from "../memory/memory";
 import { Agenda, AgendaItem, isInstruction } from "./agenda";
 import { Stash, StashItem } from "./stash";
@@ -8,33 +12,70 @@ import { FunctionDesignator, RuntimeObject } from "./object";
 import { SymbolTable } from "./symbolTable";
 import { cloneDeep } from "lodash";
 import { RuntimeStack, StackFrame } from "./stack";
+import { Stack, roundUpM } from "../utils";
+import { FunctionType, ObjectTypeInfo, shortInt } from "../typing/types";
+import { BUILTIN_FUNCTIONS, BuiltinFunction } from "../builtins";
+import { Heap, HeapEntry } from "./heap";
+import {
+  EffectiveTypeTable,
+  EffectiveTypeTableEntry,
+} from "./effectiveTypeTable";
 
-export type TextandData = (FunctionDesignator | RuntimeObject)[];
+export type TextAndDataEntry = FunctionDesignator | RuntimeObject;
+
+export type TextAndData = TextAndDataEntry[];
+
+export const isFunctionDesignator = (
+  i: TextAndDataEntry,
+): i is FunctionDesignator => i instanceof FunctionDesignator;
 
 export class RuntimeView {
   agenda: AgendaItem[];
+  lvalueFlags: boolean[];
   stash: StashItem[];
-  textAndData: TextandData;
+  textAndData: TextAndData;
   stack: StackFrame[];
+  blockScopes: Record<Identifier, number>[];
+  fileScope: Record<Identifier, number>;
+  memory: Memory;
+  functions: [string, TypedCompoundStatement, FunctionType][];
+  functionCalls: number[];
+  rbpArr: number[];
+  heap: Record<number, HeapEntry>;
+  effectiveTypeTable: Record<number, EffectiveTypeTableEntry>;
 
   constructor(rt: Runtime) {
     this.agenda = rt.agenda.getArr();
+    this.lvalueFlags = rt.agenda.getLvalueFlags();
     this.stash = rt.stash.getArr();
     this.textAndData = cloneDeep(rt.textAndData);
     this.stack = rt.stack.getArr();
+    this.blockScopes = rt.symbolTable.getBlockScopes();
+    this.fileScope = rt.symbolTable.getFileScope();
+    this.memory = cloneDeep(rt.memory);
+    this.functions = rt.getFunctions();
+    this.functionCalls = rt.functionCalls.getArr();
+    this.rbpArr = rt.stack.getRbpArr();
+    this.rbpArr.push(rt.stack.rbp);
+    this.heap = rt.heap.getAllocations();
+    this.effectiveTypeTable = rt.effectiveTypeTable.getTable();
   }
 }
 
 export class Runtime {
   public readonly agenda: Agenda;
   public readonly stash: Stash;
-  public readonly textAndData: TextandData;
+  public readonly textAndData: TextAndData;
   public readonly symbolTable: SymbolTable;
   public readonly config: RuntimeConfig;
+  public readonly effectiveTypeTable: EffectiveTypeTable;
   public readonly memory: Memory;
   public readonly stack: RuntimeStack;
+  public readonly functionCalls: Stack<number>;
+  public readonly heap: Heap;
 
-  private functions: TypedCompoundStatement[];
+  private functions: [string, TypedCompoundStatement, FunctionType][];
+  private builtinFunctions: BuiltinFunction[];
   private _exitCode: number | undefined;
   private _dataPtr: number;
   private _textPtr: number;
@@ -45,24 +86,47 @@ export class Runtime {
     this.textAndData = [];
     this.symbolTable = new SymbolTable();
     this.config = config;
-    this.memory = new Memory(config.memory);
+    this.effectiveTypeTable = new EffectiveTypeTable();
+    this.memory = new Memory(config.memory, this.effectiveTypeTable);
     this.stack = new RuntimeStack(config.memory.stack.baseAddress);
+    this.functionCalls = new Stack();
+    this.heap = new Heap(
+      config.memory.heap.baseAddress,
+      config.memory.heap.baseAddress + config.memory.heap.size,
+    );
 
     this.functions = [];
+    this.builtinFunctions = [];
     this._exitCode = undefined;
     this._dataPtr = config.memory.data.baseAddress;
     this._textPtr = config.memory.text.baseAddress;
+
+    for (const [identifier, f] of Object.entries(BUILTIN_FUNCTIONS)) {
+      const address = this.allocateText(shortInt());
+      const idx = this.addBuiltinFunction(f);
+      this.effectiveTypeTable.add(address, shortInt())
+      this.memory.setScalar(
+        address,
+        BigInt(-idx - 1),
+        shortInt(),
+        this.config.endianness,
+        true,
+        true,
+      );
+      this.symbolTable.addAddress(identifier, address);
+    }
   }
 
   public next(): void {
     if (this.agenda.isEmpty()) throw new RangeError("agenda is empty");
+    const isLvalue = this.agenda.topIsLvalue();
     const next = this.agenda.pop();
     if (isInstruction(next)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       instructionEvaluator[next.type](this, next as any);
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ASTNodeEvaluator[next.type](this, next as any);
+      ASTNodeEvaluator[next.type](this, next as any, isLvalue);
     }
   }
 
@@ -74,28 +138,51 @@ export class Runtime {
     return this._exitCode;
   }
 
-  public addFunction(body: TypedCompoundStatement): number {
-    return this.functions.push(body) - 1;
+  public addFunction(
+    identifier: string,
+    body: TypedCompoundStatement,
+    typeInfo: FunctionType,
+  ): number {
+    return this.functions.push([identifier, body, typeInfo]) - 1;
   }
 
-  public getFunction(idx: number): TypedCompoundStatement {
+  public addBuiltinFunction(i: BuiltinFunction): number {
+    return this.builtinFunctions.push(i) - 1;
+  }
+
+  public getFunction(idx: number): [TypedCompoundStatement, FunctionType] {
     try {
-      return this.functions[idx];
+      const i = this.functions[idx];
+      return [i[1], i[2]];
     } catch (err) {
       throw "invalid function index " + idx + " provided";
     }
   }
 
-  public allocateAndZeroData(size: number): number {
-    this.memory.setRepeatedByte(this._dataPtr, size, 0);
+  public getBuiltinFunction(idx: number): BuiltinFunction {
+    try {
+      return this.builtinFunctions[idx];
+    } catch (err) {
+      throw "invalid builtin function index " + idx + " provided";
+    }
+  }
+
+  public getFunctions(): [string, TypedCompoundStatement, FunctionType][] {
+    return cloneDeep(this.functions);
+  }
+
+  public allocateAndZeroData(t: ObjectTypeInfo): number {
+    this._dataPtr = roundUpM(this._dataPtr, t.alignment);
+    this.memory.setRepeatedByte(this._dataPtr, t.size, 0);
     const address = this._dataPtr;
-    this._dataPtr += size;
+    this._dataPtr += t.size;
     return address;
   }
 
-  public allocateText(size: number): number {
+  public allocateText(t: ObjectTypeInfo): number {
+    this._textPtr = roundUpM(this._textPtr, t.alignment);
     const address = this._textPtr;
-    this._textPtr += size;
+    this._textPtr += t.size;
     return address;
   }
 }

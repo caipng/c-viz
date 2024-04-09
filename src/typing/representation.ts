@@ -19,7 +19,9 @@ import { ScalarType, Type } from "./types";
 const checkInputInRange = (i: bigint, s: string): void => {
   const [min, max] = getNumericalLimitFromSpecifiers(s);
   if (min <= i && i <= max) return;
-  throw i.toString() + " out of range for type " + s;
+  throw new Error(
+    "undefined behaviour: " + i.toString() + " out of range for type " + s,
+  );
 };
 
 const clamp = (i: bigint, s: string): bigint => {
@@ -47,6 +49,7 @@ export const bytesToBigint = (
   signed: boolean,
   e: Endianness = "little",
 ): bigint => {
+  bytes = structuredClone(bytes);
   bytes.forEach(checkValidByte);
   if (e === "little") bytes.reverse();
   const isNegative = signed && bytes[0] & 0x80;

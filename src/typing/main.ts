@@ -1,8 +1,27 @@
 import {
   BaseNode,
+  CastExpressionNode,
+  InitializerList,
+  TypeSpecifier,
+  TypedCastExpressionNode,
+  TypedDesignator,
+  TypedInitializerList,
   TypedUnaryExpressionDecr,
+  TypedUnaryExpressionSizeof,
+  Typedef,
+  TypedefDeclaration,
   UnaryExpressionDecr,
+  UnaryExpressionSizeof,
+  isArrayDesignator,
+  isCastExpressionNode,
+  isInitializerList,
+  isIntegerConstant,
+  isStorageClassSpecifier,
+  isTypeName,
+  isTypeSpecifier,
   isTypedArraySubscriptingOp,
+  isTypedIntegerConstant,
+  isUnaryExpressionSizeof,
 } from "./../ast/types";
 import {
   PrimaryExprParenthesis,
@@ -16,7 +35,6 @@ import {
   CompoundStatement,
   ConditionalExpression,
   Declaration,
-  DeclarationSpecifiers,
   Expression,
   ExpressionStatement,
   ExternalDeclaration,
@@ -119,11 +137,15 @@ import {
   ScalarType,
   FunctionType,
   ObjectTypeInfo,
+  Array,
+  Structure,
+  unsignedInt,
 } from "./types";
 import {
   checkSimpleAssignmentConstraint,
   constructType,
   getMemberTypeInfo,
+  getMember,
   isLvalue,
   isModifiableLvalue,
   isNullPtrConst,
@@ -182,9 +204,15 @@ const typeFunctionDefinition = (
   env: TypeEnv,
 ): TypedFunctionDefinition =>
   typeCheck(t, () => {
+    const storageClassSpecifiers = t.specifiers.filter(isStorageClassSpecifier);
+    if (storageClassSpecifiers.length > 0)
+      throw "function definition cannot include storage class specifiers";
+
+    const typeSpecifiers = t.specifiers.filter(isTypeSpecifier);
     const { identifier, type: typeInfo } = constructType(
-      t.specifiers,
+      typeSpecifiers,
       t.declarator,
+      env,
     );
 
     if (!identifier) throw "function definition must contain an identifier";
@@ -212,49 +240,184 @@ const typeFunctionDefinition = (
     return { ...t, identifier, typeInfo, body };
   });
 
-const typeDeclaration = (t: Declaration, env: TypeEnv): TypedDeclaration =>
+const typeDeclaration = (
+  t: Declaration,
+  env: TypeEnv,
+): TypedDeclaration | TypedefDeclaration =>
   typeCheck(t, () => {
+    const storageClassSpecifiers = t.specifiers.filter(isStorageClassSpecifier);
+    const typeSpecifiers = t.specifiers.filter(isTypeSpecifier);
+    // this is evaluated for side effects (declaring struct tags)
+    getTypeInfoFromSpecifiers(typeSpecifiers, env);
+    if (storageClassSpecifiers.length > 0) {
+      if (storageClassSpecifiers.length > 1)
+        throw "multiple typedef specifiers";
+      return {
+        ...t,
+        type: "TypedefDeclaration",
+        declaratorList: t.declaratorList.map((i) =>
+          typeTypedef(i, env, typeSpecifiers),
+        ),
+      };
+    }
     return {
       ...t,
       declaratorList: t.declaratorList.map((i) =>
-        typeInitDeclarator(i, env, t.specifiers),
+        typeInitDeclarator(i, env, typeSpecifiers),
       ),
+    };
+  });
+
+const typeTypedef = (
+  t: InitDeclarator,
+  env: TypeEnv,
+  specifiers: TypeSpecifier[],
+): Typedef =>
+  typeCheck(t, () => {
+    if (t.initializer) throw "cannot initialize typedef";
+    const { identifier, type: typeInfo } = constructType(
+      specifiers,
+      t.declarator,
+      env,
+    );
+    if (!identifier) throw "declarator must declare one identifier";
+    env.addIdentifierTypeInfo(identifier, typeInfo, true);
+    return {
+      ...t,
+      type: "Typedef",
+      identifier,
+      typeInfo,
     };
   });
 
 const typeInitDeclarator = (
   t: InitDeclarator,
   env: TypeEnv,
-  specifiers: DeclarationSpecifiers,
+  specifiers: TypeSpecifier[],
 ): TypedInitDeclarator =>
   typeCheck(t, () => {
     const { identifier, type: typeInfo } = constructType(
       specifiers,
       t.declarator,
+      env,
     );
     if (!identifier) throw "declarator must declare one identifier";
     if (isFunction(typeInfo))
       throw "cannot declare function (forward declarations are not supported)";
     if (isVoid(typeInfo)) throw "cannot declare a variable of type void";
+
+    let initializer: TypedInitializer | null = null;
     if (t.initializer) {
       if (!isObjectTypeInfo(typeInfo))
         throw "cannot initialize non object type";
       // TODO: if we are in file scope, need check that initializer is a constant expression
       // see (6.6) Constant expressions and (6.7.8) Initialization
-      // TODO: type check this
+      initializer = typeInitializer(t.initializer, env, typeInfo);
     }
+
     const res = {
       ...t,
       identifier,
       typeInfo: typeInfo as ObjectTypeInfo,
-      initializer: t.initializer ? typeInitializer(t.initializer, env) : null,
+      initializer,
     };
     env.addIdentifierTypeInfo(identifier, typeInfo);
     return res;
   });
 
-const typeInitializer = (t: Initializer, env: TypeEnv): TypedInitializer =>
-  typeAssignmentExpression(t, env);
+const typeInitializer = (
+  t: Initializer,
+  env: TypeEnv,
+  targetType: ObjectTypeInfo,
+): TypedInitializer =>
+  typeCheck(t, () => {
+    if (isScalarType(targetType)) {
+      let e: AssignmentExpression;
+      if (isInitializerList(t)) {
+        const xs = t.value;
+        if (xs.length !== 1) throw "invalid initializer type for scalar";
+        if (xs[0].designation.length)
+          throw "invalid initializer type for scalar";
+        if (isInitializerList(xs[0].initializer))
+          throw "invalid initializer type for scalar";
+        e = xs[0].initializer;
+      } else {
+        e = t;
+      }
+      const res = typeAssignmentExpression(e, env);
+      if (
+        !checkSimpleAssignmentConstraint(
+          targetType,
+          res.typeInfo,
+          isNullPtrConst(res),
+        )
+      )
+        throw "invalid initializer type for scalar";
+      return res;
+    }
+
+    if (isArray(targetType) || isStructure(targetType)) {
+      if (!isInitializerList(t)) {
+        const res = typeAssignmentExpression(t, env);
+        if (!res.typeInfo.isCompatible(targetType))
+          throw "invalid initializer type for aggregate type";
+        return res;
+      }
+      return typeInitializerList(t, env, targetType);
+    }
+
+    throw "invalid initializer";
+  });
+
+const typeInitializerList = (
+  t: InitializerList,
+  env: TypeEnv,
+  tt: Array | Structure,
+): TypedInitializerList =>
+  typeCheck(t, () => {
+    let i = 0;
+    const value = t.value.map(({ designation, initializer }) => {
+      if (i >= (isArray(tt) ? tt.length : tt.members.length))
+        throw "excess initializers in initializer list";
+      let curr: ObjectTypeInfo = tt;
+      const typedDesignators: TypedDesignator[] = [];
+
+      if (designation.length) {
+        let first = true;
+        for (const d of designation) {
+          if (isArrayDesignator(d)) {
+            if (!isArray(curr))
+              throw "array designator when current object is not array";
+            const idx = typeIntegerConstant(d.idx);
+            const idxVal = Number(idx.value);
+            if (!(0 <= idxVal && idxVal < curr.length))
+              throw "index for array designator out of bounds";
+            if (first) i = idxVal;
+            curr = curr.elementType;
+            typedDesignators.push({ ...d, idx, typeInfo: curr });
+          } else {
+            if (!isStructure(curr))
+              throw "struct designator when current object is not struct";
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const [idx, _, typeInfo] = getMember(curr, d.identifier);
+            if (first) i = idx;
+            curr = typeInfo;
+            typedDesignators.push({ ...d, typeInfo });
+          }
+          first = false;
+        }
+      } else {
+        curr = isArray(tt) ? tt.elementType : tt.members[i].type;
+      }
+
+      i++;
+      return {
+        designation: typedDesignators,
+        initializer: typeInitializer(initializer, env, curr),
+      };
+    });
+    return { ...t, value };
+  });
 
 const typeCompoundStatement = (
   t: CompoundStatement,
@@ -312,7 +475,13 @@ const typeJumpStatementReturn = (
       throw "empty return statement in function declared with non-void return type";
 
     const expr = typeExpression(t.value, env);
-    if (!checkSimpleAssignmentConstraint(expectedReturnType, expr))
+    if (
+      !checkSimpleAssignmentConstraint(
+        expectedReturnType,
+        expr.typeInfo,
+        isNullPtrConst(expr),
+      )
+    )
       throw "wrong return type";
 
     return { ...t, value: expr };
@@ -323,8 +492,10 @@ const typeExpressionStatement = (
   env: TypeEnv,
 ): TypedExpressionStatement =>
   typeCheck(t, () => {
-    if (isEmptyExpressionStatement(t)) return t;
-    return typeExpression(t, env);
+    let value;
+    if (isEmptyExpressionStatement(t.value)) value = t.value;
+    else value = typeExpression(t.value, env);
+    return { ...t, value };
   });
 
 const typeExpression = (t: Expression, env: TypeEnv): TypedExpression =>
@@ -359,14 +530,21 @@ const typeAssignmentExpression = (
     const left = typeUnaryExpression(t.left, env);
     if (!isModifiableLvalue(left))
       throw "require a modifiable lvalue as left operand in assignment";
-    const leftType = left.typeInfo;
+    const leftType = applyImplicitConversions(left).typeInfo;
     const right = typeAssignmentExpression(t.right, env);
-    const rightType = right.typeInfo;
+    const rightType = applyImplicitConversions(right).typeInfo;
 
     let ok = false;
     switch (t.op) {
       case "=": {
-        if (checkSimpleAssignmentConstraint(leftType, right)) ok = true;
+        if (
+          checkSimpleAssignmentConstraint(
+            leftType,
+            rightType,
+            isNullPtrConst(right),
+          )
+        )
+          ok = true;
         break;
       }
       case "*=":
@@ -478,8 +656,8 @@ const typeBinaryExpression = (
 
     const left = typeBinaryExpression(t.left, env);
     const right = typeBinaryExpression(t.right, env);
-    let t0 = left.typeInfo;
-    let t1 = right.typeInfo;
+    let t0 = applyImplicitConversions(left).typeInfo;
+    let t1 = applyImplicitConversions(right).typeInfo;
     let typeInfo: TypeInfo;
 
     switch (t.op) {
@@ -628,7 +806,37 @@ const typeBinaryExpression = (
 const typeCastExpression = (
   t: CastExpression,
   env: TypeEnv,
-): TypedCastExpression => typeUnaryExpression(t, env);
+): TypedCastExpression =>
+  typeCheck(t, () => {
+    if (isCastExpressionNode(t)) return typeCastExpressionNode(t, env);
+    return typeUnaryExpression(t, env);
+  });
+
+const typeCastExpressionNode = (
+  t: CastExpressionNode,
+  env: TypeEnv,
+): TypedCastExpressionNode =>
+  typeCheck(t, () => {
+    const typeSpecifiers = t.targetType.specifierQualifierList;
+    const declarator = t.targetType.abstractDeclarator;
+    const { type: targetType } = constructType(typeSpecifiers, declarator, env);
+    const expr = typeCastExpression(t.expr, env);
+    if (
+      !(
+        isVoid(targetType) ||
+        (isScalarType(targetType) && isScalarType(expr.typeInfo))
+      )
+    ) {
+      throw "only cast to void or scalar type cast to scalar type allowed";
+    }
+    return {
+      ...t,
+      targetType,
+      expr,
+      typeInfo: targetType,
+      lvalue: false,
+    };
+  });
 
 const typeUnaryExpression = (
   t: UnaryExpression,
@@ -638,7 +846,29 @@ const typeUnaryExpression = (
     if (isUnaryExpressionIncr(t)) return typeUnaryExpressionIncr(t, env);
     if (isUnaryExpressionDecr(t)) return typeUnaryExpressionDecr(t, env);
     if (isUnaryExpressionNode(t)) return typeUnaryExpressionNode(t, env);
+    if (isUnaryExpressionSizeof(t)) return typeUnaryExpressionSizeof(t, env);
     return typePostfixExpression(t, env);
+  });
+
+const typeUnaryExpressionSizeof = (
+  t: UnaryExpressionSizeof,
+  env: TypeEnv,
+): TypedUnaryExpressionSizeof =>
+  typeCheck(t, () => {
+    let value: number;
+    if (isTypeName(t.value)) {
+      const typeSpecifiers = t.value.specifierQualifierList;
+      const declarator = t.value.abstractDeclarator;
+      const { type } = constructType(typeSpecifiers, declarator, env);
+      if (!isObjectTypeInfo(type)) throw "sizeof operator requires object type";
+      value = type.size;
+    } else {
+      const tt = typeUnaryExpression(t.value, env);
+      if (!isObjectTypeInfo(tt.typeInfo))
+        throw "sizeof operator requires object type";
+      value = tt.typeInfo.size;
+    }
+    return { ...t, value, typeInfo: unsignedInt(), lvalue: false };
   });
 
 const typeUnaryExpressionIncr = (
@@ -704,8 +934,9 @@ const typeUnaryExpressionNode = (
         break;
       }
       case "*": {
-        if (!isPointer(t0)) throw "operand of * must be of pointer type";
-        const rt = t0.referencedType;
+        const p0 = applyImplicitConversions(expr).typeInfo;
+        if (!isPointer(p0)) throw "operand of * must be of pointer type";
+        const rt = p0.referencedType;
         exprType = { typeInfo: rt, lvalue: isObjectTypeInfo(rt) };
         break;
       }
@@ -789,7 +1020,13 @@ const typePostfixExpressionNode = (
         if (value.length !== ft.arity)
           throw "function call has wrong number of arguments";
         ft.parameterTypes.forEach((p, i) => {
-          if (!checkSimpleAssignmentConstraint(p.type, value[i]))
+          if (
+            !checkSimpleAssignmentConstraint(
+              p.type,
+              value[i].typeInfo,
+              isNullPtrConst(value[i]),
+            )
+          )
             throw "mismatch in argument type";
         });
 
@@ -871,7 +1108,12 @@ const typePrimaryExprConstant = (
 ): TypedPrimaryExprConstant =>
   typeCheck(t, () => {
     const value = typeConstant(t.value);
-    return { ...t, value, typeInfo: value.typeInfo, lvalue: value.lvalue };
+    return {
+      ...t,
+      value,
+      typeInfo: isTypedIntegerConstant(value) ? value.typeInfo : int(),
+      lvalue: isTypedIntegerConstant(value) ? value.lvalue : false,
+    };
   });
 
 const typePrimaryExprString = (t: PrimaryExprString): TypedPrimaryExprString =>
@@ -895,7 +1137,10 @@ const typePrimaryExprParenthesis = (
     };
   });
 
-const typeConstant = (t: Constant): TypedConstant => typeIntegerConstant(t);
+const typeConstant = (t: Constant): TypedConstant => {
+  if (isIntegerConstant(t)) return typeIntegerConstant(t);
+  return t;
+};
 
 const typeIntegerConstant = (t: IntegerConstant): TypedIntegerConstant =>
   typeCheck(t, () => {
@@ -975,9 +1220,7 @@ const typeIntegerConstant = (t: IntegerConstant): TypedIntegerConstant =>
     for (const ti of typesToTry) {
       const [type_min, type_max] = getNumericalLimitFromSpecifiers(ti);
       if (type_min <= t.value && t.value <= type_max) {
-        typeInfo = getTypeInfoFromSpecifiers(
-          ti.split(" ") as DeclarationSpecifiers,
-        );
+        typeInfo = getTypeInfoFromSpecifiers(ti.split(" ") as TypeSpecifier[]);
         break;
       }
     }

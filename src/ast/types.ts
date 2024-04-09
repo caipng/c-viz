@@ -1,8 +1,10 @@
+import { has, isObject } from "lodash";
 import {
   FunctionType,
   ObjectTypeInfo,
   ScalarType,
   TypeInfo,
+  Void,
 } from "../typing/types";
 
 export interface PositionInfo {
@@ -27,11 +29,15 @@ export type ASTNode =
   | JumpStatementReturn
   | EmptyExpressionStatement
   | CommaOperator
+  | CastExpressionNode
+  | ExpressionStatement
+  | InitializerList
   | AssignmentExpressionNode
   | ConditionalExpressionNode
   | BinaryExpressionNode
   | UnaryExpressionIncr
   | UnaryExpressionDecr
+  | UnaryExpressionSizeof
   | UnaryExpressionNode
   | PostfixExpressionNode
   | ArraySubscriptingOp
@@ -51,16 +57,21 @@ export type TypedASTNode =
   | TypedFunctionDefinition
   | TypedDeclaration
   | TypedInitDeclarator
+  | TypedefDeclaration
   | TypedCompoundStatement
   | TypedJumpStatementReturn
   | EmptyExpressionStatement
   | TypedCommaOperator
+  | TypedCastExpressionNode
+  | TypedExpressionStatement
+  | TypedInitializerList
   | TypedAssignmentExpressionNode
   | TypedConditionalExpressionNode
   | TypedBinaryExpressionNode
   | TypedUnaryExpressionIncr
   | TypedUnaryExpressionDecr
   | TypedUnaryExpressionNode
+  | TypedUnaryExpressionSizeof
   | TypedPostfixExpressionNode
   | TypedArraySubscriptingOp
   | TypedFunctionCallOp
@@ -87,7 +98,8 @@ export type ExternalDeclaration = FunctionDefinition | Declaration;
 
 export type TypedExternalDeclaration =
   | TypedFunctionDefinition
-  | TypedDeclaration;
+  | TypedDeclaration
+  | TypedefDeclaration;
 
 export interface FunctionDefinition extends BaseNode {
   type: "FunctionDefinition";
@@ -120,7 +132,17 @@ export interface TypedDeclaration extends BaseNode {
   declaratorList: TypedInitDeclarator[];
 }
 
-export type DeclarationSpecifiers = TypeSpecifier[];
+export interface TypedefDeclaration extends BaseNode {
+  type: "TypedefDeclaration";
+  declaratorList: Typedef[];
+}
+
+export const isTypedefDeclaration = (i: BaseNode): i is TypedefDeclaration =>
+  i.type === "TypedefDeclaration";
+
+export type DeclarationSpecifiers = DeclarationSpecifier[];
+
+export type DeclarationSpecifier = TypeSpecifier | StorageClassSpecifier;
 
 export type TypeSpecifier =
   | "void"
@@ -131,7 +153,19 @@ export type TypeSpecifier =
   | "signed"
   | "unsigned"
   | "_Bool"
-  | StructSpecifier;
+  | StructSpecifier
+  | TypedefName;
+
+export const isTypeSpecifier = (i: DeclarationSpecifier): i is TypeSpecifier =>
+  !isStorageClassSpecifier(i);
+
+export type TypedefName = string;
+
+export type StorageClassSpecifier = "typedef";
+
+export const isStorageClassSpecifier = (
+  i: DeclarationSpecifier,
+): i is StorageClassSpecifier => i === "typedef";
 
 export interface StructSpecifier extends BaseNode {
   type: "StructSpecifier";
@@ -155,9 +189,77 @@ export interface TypedInitDeclarator extends BaseNode {
   initializer: TypedInitializer | null;
 }
 
-export type Initializer = AssignmentExpression;
+export interface Typedef extends BaseNode {
+  type: "Typedef";
+  identifier: Identifier;
+  typeInfo: TypeInfo;
+}
 
-export type TypedInitializer = TypedAssignmentExpression;
+export const isTypedef = (i: BaseNode): i is Typedef => i.type === "Typedef";
+
+export type Initializer = AssignmentExpression | InitializerList;
+
+export type TypedInitializer = TypedAssignmentExpression | TypedInitializerList;
+
+export const isTypedInitializerList = (
+  i: TypedInitializer,
+): i is TypedInitializerList => i.type === "InitializerList";
+
+export interface InitializerList extends BaseNode {
+  type: "InitializerList";
+  value: DesignationAndInitializer[];
+}
+
+export const isInitializerList = (i: BaseNode): i is InitializerList =>
+  i.type === "InitializerList";
+
+export interface TypedInitializerList extends BaseNode {
+  type: "InitializerList";
+  value: TypedDesignationAndInitializer[];
+}
+
+export interface DesignationAndInitializer {
+  designation: Designator[];
+  initializer: Initializer;
+}
+
+export interface TypedDesignationAndInitializer {
+  designation: TypedDesignator[];
+  initializer: TypedInitializer;
+}
+
+export type Designator = ArrayDesignator | StructDesignator;
+
+export type TypedDesignator = TypedArrayDesignator | TypedStructDesignator;
+
+export interface ArrayDesignator {
+  type: "arrayDesignator";
+  idx: IntegerConstant;
+}
+
+export const isArrayDesignator = (i: Designator): i is ArrayDesignator =>
+  i.type === "arrayDesignator";
+
+export interface TypedArrayDesignator {
+  type: "arrayDesignator";
+  idx: TypedIntegerConstant;
+  typeInfo: ObjectTypeInfo;
+}
+
+export const isTypedArrayDesignator = (
+  i: TypedDesignator,
+): i is TypedArrayDesignator => i.type === "arrayDesignator";
+
+export interface StructDesignator {
+  type: "structDesignator";
+  identifier: Identifier;
+}
+
+export interface TypedStructDesignator {
+  type: "structDesignator";
+  identifier: Identifier;
+  typeInfo: ObjectTypeInfo;
+}
 
 export type Declarator = DeclaratorPart[];
 
@@ -238,7 +340,10 @@ export interface TypedCompoundStatement extends BaseNode {
 
 export type BlockItem = Statement | Declaration;
 
-export type TypedBlockItem = TypedStatement | TypedDeclaration;
+export type TypedBlockItem =
+  | TypedStatement
+  | TypedDeclaration
+  | TypedefDeclaration;
 
 export type Statement = CompoundStatement | ExpressionStatement | JumpStatement;
 
@@ -267,11 +372,15 @@ export interface TypedJumpStatementReturn extends BaseNode {
   value: TypedExpression | null;
 }
 
-export type ExpressionStatement = Expression | EmptyExpressionStatement;
+export interface ExpressionStatement extends BaseNode {
+  type: "ExpressionStatement";
+  value: Expression | EmptyExpressionStatement;
+}
 
-export type TypedExpressionStatement =
-  | TypedExpression
-  | EmptyExpressionStatement;
+export interface TypedExpressionStatement extends BaseNode {
+  type: "ExpressionStatement";
+  value: TypedExpression | EmptyExpressionStatement;
+}
 
 export interface EmptyExpressionStatement extends BaseNode {
   type: "EmptyExpressionStatement";
@@ -416,21 +525,45 @@ export type BinaryOperator =
   | "/"
   | "%";
 
-export type CastExpression = UnaryExpression;
+export type CastExpression = UnaryExpression | CastExpressionNode;
 
-export type TypedCastExpression = TypedUnaryExpression;
+export type TypedCastExpression =
+  | TypedUnaryExpression
+  | TypedCastExpressionNode;
+
+export interface CastExpressionNode extends BaseNode {
+  type: "CastExpression";
+  targetType: TypeName;
+  expr: CastExpression;
+}
+
+export const isCastExpressionNode = (i: BaseNode): i is CastExpressionNode =>
+  i.type === "CastExpression";
+
+export interface TypedCastExpressionNode extends TypedExpressionBaseNode {
+  type: "CastExpression";
+  targetType: Void | ScalarType;
+  expr: TypedCastExpression;
+}
+
+export interface TypeName {
+  specifierQualifierList: TypeSpecifier[];
+  abstractDeclarator: AbstractDeclarator;
+}
 
 export type UnaryExpression =
   | PostfixExpression
   | UnaryExpressionIncr
   | UnaryExpressionDecr
-  | UnaryExpressionNode;
+  | UnaryExpressionNode
+  | UnaryExpressionSizeof;
 
 export type TypedUnaryExpression =
   | TypedPostfixExpression
   | TypedUnaryExpressionIncr
   | TypedUnaryExpressionDecr
-  | TypedUnaryExpressionNode;
+  | TypedUnaryExpressionNode
+  | TypedUnaryExpressionSizeof;
 
 export interface UnaryExpressionIncr extends BaseNode {
   type: "UnaryExpressionIncr";
@@ -456,6 +589,23 @@ export const isUnaryExpressionDecr = (i: BaseNode): i is UnaryExpressionDecr =>
 export interface TypedUnaryExpressionDecr extends TypedExpressionBaseNode {
   type: "UnaryExpressionDecr";
   value: TypedUnaryExpression;
+}
+
+export interface UnaryExpressionSizeof extends BaseNode {
+  type: "UnaryExpressionSizeof";
+  value: UnaryExpression | TypeName;
+}
+
+export const isTypeName = (i: UnaryExpression | TypeName): i is TypeName =>
+  has(i, "specifierQualifierList");
+
+export const isUnaryExpressionSizeof = (
+  i: BaseNode,
+): i is UnaryExpressionSizeof => i.type === "UnaryExpressionSizeof";
+
+export interface TypedUnaryExpressionSizeof extends TypedExpressionBaseNode {
+  type: "UnaryExpressionSizeof";
+  value: number;
 }
 
 export interface UnaryExpressionNode extends BaseNode {
@@ -559,6 +709,10 @@ export interface TypedPointerMemberOp extends BaseNode {
   value: Identifier;
 }
 
+export const isTypedPointerMemberOp = (
+  i: TypedPostfixOp,
+): i is TypedPointerMemberOp => i.type === "PointerMember";
+
 export interface StructMemberOp extends BaseNode {
   type: "StructMember";
   value: Identifier;
@@ -658,9 +812,9 @@ export interface TypedPrimaryExprParenthesis extends TypedExpressionBaseNode {
 
 export type Identifier = string;
 
-export type Constant = IntegerConstant;
+export type Constant = IntegerConstant | CharacterConstant;
 
-export type TypedConstant = TypedIntegerConstant;
+export type TypedConstant = TypedIntegerConstant | CharacterConstant;
 
 export interface IntegerConstant extends BaseNode {
   type: "IntegerConstant";
@@ -668,6 +822,9 @@ export interface IntegerConstant extends BaseNode {
   suffix: IntegerConstantSuffix;
   isDecimal: boolean;
 }
+
+export const isIntegerConstant = (i: Constant): i is IntegerConstant =>
+  isObject(i);
 
 export interface TypedIntegerConstant extends TypedExpressionBaseNode {
   type: "IntegerConstant";
@@ -677,10 +834,12 @@ export interface TypedIntegerConstant extends TypedExpressionBaseNode {
 
 export const isTypedIntegerConstant = (
   expr: TypedConstant,
-): expr is TypedIntegerConstant => expr.type === "IntegerConstant";
+): expr is TypedIntegerConstant => isObject(expr);
 
 export interface IntegerConstantSuffix {
   unsigned?: true;
   long?: true;
   longLong?: true;
 }
+
+export type CharacterConstant = string;

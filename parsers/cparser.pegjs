@@ -384,10 +384,11 @@ EnumerationConstant
 
 // (6.4.4.4) character-constant
 CharacterConstant
-  = [LuU]? "'" a:CCharSequence "'"
+  = a:[LuU]? "'" b:CCharSequence "'"
     { 
-      throwNotImplemented("character constants");
-      return a;
+      if (a) throwNotImplemented("char constant prefix");
+      if (b.length > 1) throwNotImplemented("multi char constant")
+      return b[0];
     }
 
 // (6.4.4.4) c-char-sequence
@@ -659,13 +660,11 @@ UnaryExpression
     }
   / SIZEOF a:UnaryExpression
     { 
-      throwNotImplemented("sizeof expr");
-      return makeNode("UnaryExpressionSizeofExpr", a);
+      return makeNode("UnaryExpressionSizeof", { value: a });
     }
   / SIZEOF LPAR a:TypeName RPAR
     {
-      throwNotImplemented("sizeof type");
-      return makeNode("UnaryExpressionSizeofType", a);
+      return makeNode("UnaryExpressionSizeof", { value: a });
     }
   / ALIGNOF LPAR a:TypeName RPAR
     {
@@ -687,9 +686,8 @@ CastExpression
   = UnaryExpression
   / LPAR a:TypeName RPAR b:CastExpression
     {
-      throwNotImplemented("cast expressions");
       return makeNode("CastExpression", {
-        type: a,
+        targetType: a,
         expr: b
       });
     }
@@ -811,6 +809,7 @@ Expression
 // (6.6) constant-expression
 ConstantExpression
   = ConditionalExpression
+    { throwNotImplemented("constant expressions"); }
 
 // ==========
 // A.2.2 Declarations
@@ -879,7 +878,6 @@ InitDeclarator
 // (6.7.1) storage-class-specifier
 StorageClassSpecifier
   = TYPEDEF
-    { throwNotImplemented("typedef"); }
   / EXTERN
     { throwNotImplemented("extern storage class"); }
   / STATIC
@@ -961,7 +959,6 @@ SpecifierQualifierList
   = (TypeQualifier / AlignmentSpecifier)*
     TypedefName
     (TypeQualifier / AlignmentSpecifier)*
-    { throwNotImplemented("typedef"); }
   / (
         TypeSpecifier
       / TypeQualifier
@@ -1043,8 +1040,10 @@ DirectDeclarator
     b:(
         LBRC c:IntegerConstant? RBRC
         {
+          if (c === null) throwNotImplemented("unknown size array");
           return { partType: "array", length: c };
         }
+      / LBRC c:ConstantExpression RBRC
       / LBRC c:TypeQualifierList? d:AssignmentExpression? RBRC
         {
           throwNotImplemented("variable length array");
@@ -1127,10 +1126,10 @@ IdentifierList
 TypeName
   = a:SpecifierQualifierList b:AbstractDeclarator?
     {
-      return makeNode("TypeName", {
+      return {
         specifierQualifierList: a,
-        abstractDeclarator: b
-      });
+        abstractDeclarator: b || []
+      };
     }
 
 // (6.7.7) abstract-declarator
@@ -1178,25 +1177,34 @@ Initializer
   = a:AssignmentExpression
     { return a; }
   / LCUR a:InitializerList COMMA? RCUR
-    { throwNotImplemented("initializer list"); }
+    { return a; }
 
 // (6.7.9) initializer-list
 InitializerList
-  = Designation? Initializer
-    (COMMA Designation? Initializer)*
+  = a:Designation? b:Initializer
+    c:(COMMA d:Designation? e:Initializer { return { designation: d || [], initializer: e }; })*
+    {
+      const i = { designation: a || [], initializer: b };
+      return makeNode("InitializerList", [i].concat(c || []));
+    }
 
 // (6.7.9) designation
 Designation
-  = DesignatorList EQ
+  = a:DesignatorList EQ
+    { return a; }
 
 // (6.7.9) designator-list
 DesignatorList
-  = Designator+
+  = a:Designator+
+    { return a; }
 
 // (6.7.9) designator
 Designator
-  = LBRC ConstantExpression RBRC
-  / DOT Identifier
+  = LBRC a:IntegerConstant RBRC
+    { return { type: "arrayDesignator", idx: a }; }
+  / LBRC ConstantExpression RBRC
+  / DOT a:Identifier
+    { return { type: "structDesignator", identifier: a }; }
 
 // (6.7.10) static_assert-declaration
 StaticAssertDeclaration
@@ -1242,7 +1250,10 @@ BlockItem
 // (6.8.3) expression-statement
 ExpressionStatement
   = a:Expression? SEMI
-    { return a === null ? makeNode("EmptyExpressionStatement") : a; }
+    {
+      return makeNode("ExpressionStatement",
+        a === null ? makeNode("EmptyExpressionStatement") : a);
+    }
 
 // (6.8.4) selection-statement
 SelectionStatement

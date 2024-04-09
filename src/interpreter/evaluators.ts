@@ -1,12 +1,20 @@
 import {
+  ObjectTypeInfo,
   ScalarType,
+  TypeInfo,
   int,
   isArithmeticType,
+  isArray,
   isIntegerType,
+  isObjectTypeInfo,
   isPointer,
   isScalarType,
   isSigned,
+  isStructure,
+  isVoid,
+  pointer,
   shortInt,
+  unsignedInt,
 } from "./../typing/types";
 import {
   TypedCompoundStatement,
@@ -25,41 +33,67 @@ import {
   TypedInitDeclarator,
   TypedUnaryExpressionNode,
   TypedPrimaryExprIdentifier,
+  TypedCastExpressionNode,
+  TypedExpressionStatement,
+  isTypedIntegerConstant,
+  isTypedInitializerList,
+  TypedInitializer,
+  isTypedArrayDesignator,
+  TypedAssignmentExpressionNode,
+  TypedStructMemberOp,
+  TypedPointerMemberOp,
+  TypedArraySubscriptingOp,
+  isTypedPointerMemberOp,
+  isTypedArraySubscriptingOp,
+  isTypedPostfixExpressionNode,
+  isTypedUnaryExpressionNode,
+  TypedUnaryExpressionSizeof,
+  isEmptyExpressionStatement,
 } from "../ast/types";
 import {
   ArithmeticConversionInstruction,
-  AssignInstruction,
+  ArraySubscriptInstruction,
   BinaryOpInstruction,
   BranchInstruction,
   CallInstruction,
+  CastInstruction,
   Instruction,
   InstructionType,
+  PushInstruction,
   UnaryOpInstruction,
   arithmeticConversionInstruction,
+  arraySubscriptInstruction,
   assignInstruction,
   binaryOpInstruction,
   branchInstruction,
   callInstruction,
+  castInstruction,
   isMarkInstruction,
   markInstruction,
   popInstruction,
+  pushInstruction,
   returnInstruction,
   unaryOpInstruction,
 } from "./instructions";
 import { Type, isFunction } from "../typing/types";
 import { Runtime } from "./runtime";
 import { FunctionDesignator, RuntimeObject, TemporaryObject } from "./object";
-import { SHRT_SIZE } from "../constants";
 import { BIGINT_TO_BYTES, bytesToBigint } from "../typing/representation";
 import { isTemporaryObject } from "./stash";
-import { applyUsualArithmeticConversions } from "../typing/conversions";
+import {
+  applyUsualArithmeticConversions,
+  applyImplicitConversions as applyImplicitConversionsToExpression,
+} from "../typing/conversions";
 import { Endianness } from "../config";
 import { RuntimeStack } from "./stack";
+import { SHRT_SIZE } from "../constants";
+import { checkSimpleAssignmentConstraint, getMember } from "../typing/utils";
 
 export const ASTNodeEvaluator: {
   [NodeType in TypedASTNode["type"]]: (
     rt: Runtime,
     i: Extract<TypedASTNode, { type: NodeType }>,
+    evaluateAsLvalue: boolean,
   ) => void;
 } = {
   TranslationUnit: (
@@ -74,13 +108,16 @@ export const ASTNodeEvaluator: {
     rt: Runtime,
     { identifier, typeInfo, body }: TypedFunctionDefinitionAST,
   ) => {
-    const address = rt.allocateText(SHRT_SIZE);
-    const idx = rt.addFunction(body);
+    const address = rt.allocateText(shortInt());
+    const idx = rt.addFunction(identifier, body, typeInfo);
+    rt.effectiveTypeTable.add(address, shortInt());
     rt.memory.setScalar(
       address,
       BigInt(idx),
-      Type.ShortInt,
+      shortInt(),
       rt.config.endianness,
+      true,
+      true,
     );
     const fd = new FunctionDesignator(typeInfo, address, identifier);
     rt.textAndData.push(fd);
@@ -88,30 +125,31 @@ export const ASTNodeEvaluator: {
   },
   Declaration: (rt: Runtime, { declaratorList }: TypedDeclarationAST) => {
     if (declaratorList.length == 1) {
-      return ASTNodeEvaluator["InitDeclarator"](rt, declaratorList[0]);
+      return ASTNodeEvaluator["InitDeclarator"](rt, declaratorList[0], false);
     }
     for (let i = declaratorList.length - 1; i >= 0; i--) {
       rt.agenda.push(declaratorList[i]);
     }
   },
+  TypedefDeclaration: () => {},
   InitDeclarator: (
     rt: Runtime,
     { identifier, typeInfo, initializer }: TypedInitDeclarator,
   ) => {
-    if (rt.symbolTable.inFileScope) {
+    if (!rt.symbolTable.inFileScope) {
       throw new Error("declarations in functions not implemented");
     }
 
-    const address = rt.allocateAndZeroData(typeInfo.size);
+    const address = rt.allocateAndZeroData(typeInfo);
     const o = new RuntimeObject(typeInfo, address, identifier, rt.memory);
     rt.textAndData.push(o);
     rt.symbolTable.addAddress(identifier, address);
+    rt.effectiveTypeTable.add(address, typeInfo);
 
-    if (initializer) {
-      rt.agenda.push(popInstruction());
-      rt.agenda.push(assignInstruction(identifier, typeInfo));
-      rt.agenda.push(initializer);
-    }
+    if (initializer) evaluateInitializer(initializer, address, typeInfo, rt);
+  },
+  InitializerList: () => {
+    throw new Error("cannot evaluate initializer list on its own");
   },
   CompoundStatement: (
     rt: Runtime,
@@ -129,21 +167,47 @@ export const ASTNodeEvaluator: {
     rt.agenda.push(returnInstruction());
     if (expr) rt.agenda.push(expr);
   },
+  ExpressionStatement: (rt: Runtime, { value }: TypedExpressionStatement) => {
+    if (isEmptyExpressionStatement(value)) return;
+    if (!isVoid(value.typeInfo)) rt.agenda.push(popInstruction());
+    rt.agenda.push(value);
+  },
   EmptyExpressionStatement: () => {},
   CommaOperator: (rt: Runtime, { value: exprs }: TypedCommaOperator) => {
     for (let i = exprs.length - 1; i >= 0; i--) {
+      if (i !== exprs.length - 1 && !isVoid(exprs[i].typeInfo))
+        rt.agenda.push(popInstruction());
       rt.agenda.push(exprs[i]);
     }
   },
-  AssignmentExpression: () => {
-    throw new Error("not implemented");
+  CastExpression: (
+    rt: Runtime,
+    { expr, targetType }: TypedCastExpressionNode,
+  ) => {
+    rt.agenda.push(castInstruction(targetType));
+    rt.agenda.push(expr);
+  },
+  AssignmentExpression: (
+    rt: Runtime,
+    { op, left, right }: TypedAssignmentExpressionNode,
+  ) => {
+    if (op !== "=") throw new Error("not implemented");
+    if (!isObjectTypeInfo(left.typeInfo)) throw new Error("invalid LHS type");
+    rt.agenda.push(assignInstruction());
+    rt.agenda.push(right);
+    rt.agenda.pushAsLvalue(left);
   },
   ConditionalExpression: (
     rt: Runtime,
     { cond, exprIfTrue, exprIfFalse, typeInfo }: TypedConditionalExpressionNode,
   ) => {
-    if (isArithmeticType(typeInfo))
-      rt.agenda.push(arithmeticConversionInstruction(typeInfo));
+    if (isArithmeticType(typeInfo)) {
+      if (
+        !typeInfo.isCompatible(exprIfTrue.typeInfo) ||
+        !typeInfo.isCompatible(exprIfFalse.typeInfo)
+      )
+        rt.agenda.push(arithmeticConversionInstruction(typeInfo));
+    }
     rt.agenda.push(branchInstruction(exprIfTrue, exprIfFalse));
     rt.agenda.push(cond);
   },
@@ -158,11 +222,48 @@ export const ASTNodeEvaluator: {
   UnaryExpressionDecr: () => {
     throw new Error("not implemented");
   },
-  UnaryExpression: (rt: Runtime, { expr, op }: TypedUnaryExpressionNode) => {
+  UnaryExpressionSizeof: (
+    rt: Runtime,
+    { value }: TypedUnaryExpressionSizeof,
+  ) => {
+    rt.stash.pushWithoutConversions(
+      new TemporaryObject(
+        unsignedInt(),
+        BIGINT_TO_BYTES[Type.UnsignedInt](BigInt(value), rt.config.endianness),
+      ),
+    );
+  },
+  UnaryExpression: (
+    rt: Runtime,
+    { expr, op }: TypedUnaryExpressionNode,
+    evaluateAsLvalue: boolean,
+  ) => {
     switch (op) {
       case "-": {
         rt.agenda.push(unaryOpInstruction(op));
         rt.agenda.push(expr);
+        break;
+      }
+      case "*": {
+        if (evaluateAsLvalue) {
+          rt.agenda.push(applyImplicitConversionsToExpression(expr));
+        } else {
+          rt.agenda.push(unaryOpInstruction(op));
+          rt.agenda.push(expr);
+        }
+        break;
+      }
+      case "&": {
+        if (
+          isTypedPostfixExpressionNode(expr) &&
+          isTypedArraySubscriptingOp(expr.op)
+        ) {
+          rt.agenda.pushAsLvalue(expr);
+        } else if (isTypedUnaryExpressionNode(expr) && expr.op === "*") {
+          rt.agenda.push(expr.expr);
+        } else {
+          rt.agenda.pushAsLvalue(expr);
+        }
         break;
       }
       default:
@@ -172,12 +273,25 @@ export const ASTNodeEvaluator: {
   PostfixExpression: (
     rt: Runtime,
     { expr, op }: TypedPostfixExpressionNode,
+    evaluateAsLvalue: boolean,
   ) => {
-    rt.agenda.push(op);
-    rt.agenda.push(expr);
+    if (evaluateAsLvalue) {
+      rt.agenda.pushAsLvalue(op);
+      if (isTypedArraySubscriptingOp(op) || isTypedPointerMemberOp(op))
+        rt.agenda.push(expr);
+      else rt.agenda.pushAsLvalue(expr);
+    } else {
+      rt.agenda.push(op);
+      rt.agenda.push(expr);
+    }
   },
-  ArraySubscripting: () => {
-    throw new Error("not implemented");
+  ArraySubscripting: (
+    rt: Runtime,
+    { value: expr }: TypedArraySubscriptingOp,
+    evaluateAsLvalue: boolean,
+  ) => {
+    rt.agenda.pushAsLvalue(arraySubscriptInstruction(evaluateAsLvalue));
+    rt.agenda.push(expr);
   },
   FunctionCall: (rt: Runtime, { value: args }: TypedFunctionCallOp) => {
     rt.agenda.push(callInstruction(args.length));
@@ -185,11 +299,97 @@ export const ASTNodeEvaluator: {
       rt.agenda.push(args[i]);
     }
   },
-  PointerMember: () => {
-    throw new Error("not implemented");
+  PointerMember: (
+    rt: Runtime,
+    { value: identifier }: TypedPointerMemberOp,
+    evaluateAsLvalue: boolean,
+  ) => {
+    const o = rt.stash.pop();
+    if (
+      !(
+        isTemporaryObject(o) &&
+        isPointer(o.typeInfo) &&
+        isStructure(o.typeInfo.referencedType)
+      )
+    )
+      throw new Error("expected ptr to struct");
+
+    const m = getMember(o.typeInfo.referencedType, identifier);
+    const relAddr = m[1];
+    const typeInfo = m[2];
+    const addr = Number(
+      bytesToBigint(o.bytes, isSigned(o.typeInfo), rt.config.endianness),
+    );
+    if (!evaluateAsLvalue) {
+      const bytes = rt.memory.getObjectBytes(addr + relAddr, typeInfo);
+      rt.stash.push(
+        rt,
+        new TemporaryObject(typeInfo, bytes, addr + relAddr),
+        addr + relAddr,
+      );
+    } else {
+      rt.stash.pushWithoutConversions(
+        new TemporaryObject(
+          pointer(applyImplicitConversions(typeInfo)),
+          BIGINT_TO_BYTES[Type.Pointer](
+            BigInt(addr + relAddr),
+            rt.config.endianness,
+          ),
+        ),
+      );
+    }
   },
-  StructMember: () => {
-    throw new Error("not implemented");
+  StructMember: (
+    rt: Runtime,
+    { value: identifier }: TypedStructMemberOp,
+    evaluateAsLvalue: boolean,
+  ) => {
+    const o = rt.stash.pop();
+    if (!evaluateAsLvalue) {
+      if (!(isTemporaryObject(o) && isStructure(o.typeInfo)))
+        throw new Error("expected struct");
+      const m = getMember(o.typeInfo, identifier);
+      const relAddr = m[1];
+      const typeInfo = m[2];
+      if (isArray(typeInfo) && o.address === null)
+        throw new Error("cannot take address of temporary object");
+      rt.stash.push(
+        rt,
+        new TemporaryObject(
+          typeInfo,
+          o.bytes.slice(relAddr, relAddr + typeInfo.size),
+          o.address === null ? null : o.address + relAddr,
+        ),
+        o.address === null ? null : o.address + relAddr,
+      );
+      return;
+    }
+
+    if (
+      !(
+        isTemporaryObject(o) &&
+        isPointer(o.typeInfo) &&
+        isStructure(o.typeInfo.referencedType)
+      )
+    )
+      throw new Error("expected ptr to struct");
+    const addr = bytesToBigint(
+      o.bytes,
+      isSigned(o.typeInfo),
+      rt.config.endianness,
+    );
+    const m = getMember(o.typeInfo.referencedType, identifier);
+    const relAddr = m[1];
+    const typeInfo = m[2];
+    rt.stash.pushWithoutConversions(
+      new TemporaryObject(
+        pointer(applyImplicitConversions(typeInfo)),
+        BIGINT_TO_BYTES[Type.Pointer](
+          addr + BigInt(relAddr),
+          rt.config.endianness,
+        ),
+      ),
+    );
   },
   PostfixIncrement: () => {
     throw new Error("not implemented");
@@ -200,29 +400,49 @@ export const ASTNodeEvaluator: {
   PrimaryExprIdentifier: (
     rt: Runtime,
     { value: identifier, typeInfo }: TypedPrimaryExprIdentifier,
+    evaluateAsLvalue: boolean,
   ) => {
-    if (isFunction(typeInfo)) {
-      for (const i of rt.textAndData) {
-        if (i.identifier === identifier) {
-          rt.stash.push(i as FunctionDesignator);
-          return;
-        }
-      }
-      throw "function " + identifier + " not found";
-    }
     const address = rt.symbolTable.getAddress(identifier);
-    const bytes = rt.memory.getBytes(address, typeInfo.size);
-    const t = new TemporaryObject(typeInfo, bytes);
-    rt.stash.push(t);
+    if (evaluateAsLvalue) {
+      rt.stash.pushWithoutConversions(
+        new TemporaryObject(
+          pointer(
+            isFunction(typeInfo)
+              ? typeInfo
+              : applyImplicitConversions(typeInfo),
+          ),
+          BIGINT_TO_BYTES[Type.Pointer](BigInt(address), rt.config.endianness),
+        ),
+      );
+      return;
+    }
+
+    let t: TemporaryObject | FunctionDesignator;
+    if (isFunction(typeInfo)) {
+      t = new FunctionDesignator(typeInfo, address, identifier);
+    } else {
+      const bytes = rt.memory.getObjectBytes(address, typeInfo);
+      t = new TemporaryObject(typeInfo, bytes, address);
+    }
+    rt.stash.push(rt, t, address);
   },
   PrimaryExprConstant: (
     rt: Runtime,
-    { value: integerConstant }: TypedPrimaryExprConstant,
+    { value: v }: TypedPrimaryExprConstant,
   ) => {
-    const { typeInfo, value } = integerConstant;
+    if (!isTypedIntegerConstant(v)) {
+      const bytes = BIGINT_TO_BYTES[Type.Int](
+        BigInt(v.charCodeAt(0)),
+        rt.config.endianness,
+      );
+      const t = new TemporaryObject(int(), bytes);
+      rt.stash.pushWithoutConversions(t);
+      return;
+    }
+    const { typeInfo, value } = v;
     const bytes = BIGINT_TO_BYTES[typeInfo.type](value, rt.config.endianness);
     const t = new TemporaryObject(typeInfo, bytes);
-    rt.stash.push(t);
+    rt.stash.pushWithoutConversions(t);
   },
   PrimaryExprString: () => {
     throw new Error("not implemented");
@@ -230,8 +450,10 @@ export const ASTNodeEvaluator: {
   PrimaryExprParenthesis: (
     rt: Runtime,
     { value: expr }: TypedPrimaryExprParenthesis,
+    evaluateAsLvalue: boolean,
   ) => {
-    rt.agenda.push(expr);
+    if (evaluateAsLvalue) rt.agenda.pushAsLvalue(expr);
+    else rt.agenda.push(expr);
   },
 };
 
@@ -253,13 +475,43 @@ export const instructionEvaluator: {
           rt.config.endianness,
         );
         n = -n;
-        rt.stash.push(
+        rt.stash.pushWithoutConversions(
           new TemporaryObject(
             v.typeInfo,
             BIGINT_TO_BYTES[v.typeInfo.type](n, rt.config.endianness),
           ),
         );
-        break;
+        return;
+      }
+      case "*": {
+        if (!(isTemporaryObject(v) && isPointer(v.typeInfo)))
+          throw new Error("operand of * should have pointer type");
+        const addr = Number(
+          bytesToBigint(v.bytes, isSigned(v.typeInfo), rt.config.endianness),
+        );
+        const pt = v.typeInfo.referencedType;
+        if (isObjectTypeInfo(pt)) {
+          return rt.stash.push(
+            rt,
+            new TemporaryObject(pt, rt.memory.getObjectBytes(addr, pt), addr),
+            addr,
+          );
+        }
+        if (isFunction(pt)) {
+          return rt.stash.push(
+            rt,
+            new FunctionDesignator(
+              pt,
+              addr,
+              rt.symbolTable.getIdentifier(addr),
+            ),
+            addr,
+          );
+        }
+        throw new Error("invalid dereference");
+      }
+      case "&": {
+        throw new Error("not implemented");
       }
     }
     throw new Error("not implemented");
@@ -287,9 +539,47 @@ export const instructionEvaluator: {
             BIGINT_TO_BYTES[ct.type](l + r, rt.config.endianness),
           );
         }
+        if (
+          isPointer(t0) &&
+          isObjectTypeInfo(t0.referencedType) &&
+          isIntegerType(t1)
+        ) {
+          const iv = Number(
+            bytesToBigint(ro.bytes, isSigned(t1), rt.config.endianness),
+          );
+          const pv = Number(
+            bytesToBigint(lo.bytes, isSigned(t0), rt.config.endianness),
+          );
+          res = new TemporaryObject(
+            t0,
+            BIGINT_TO_BYTES[t0.type](
+              BigInt(pv + iv * t0.referencedType.size),
+              rt.config.endianness,
+            ),
+          );
+        }
+        if (
+          isPointer(t1) &&
+          isObjectTypeInfo(t1.referencedType) &&
+          isIntegerType(t0)
+        ) {
+          const pv = Number(
+            bytesToBigint(ro.bytes, isSigned(t1), rt.config.endianness),
+          );
+          const iv = Number(
+            bytesToBigint(lo.bytes, isSigned(t0), rt.config.endianness),
+          );
+          res = new TemporaryObject(
+            t1,
+            BIGINT_TO_BYTES[t1.type](
+              BigInt(pv + iv * t1.referencedType.size),
+              rt.config.endianness,
+            ),
+          );
+        }
 
         if (res === undefined) throw new Error("invalid types for +");
-        rt.stash.push(res);
+        rt.stash.pushWithoutConversions(res);
         return;
       }
       case "-":
@@ -322,7 +612,7 @@ export const instructionEvaluator: {
         }
         const bytes = BIGINT_TO_BYTES[ct.type](res, rt.config.endianness);
         const t = new TemporaryObject(ct, bytes);
-        rt.stash.push(t);
+        rt.stash.pushWithoutConversions(t);
         return;
       }
       case "==":
@@ -369,7 +659,7 @@ export const instructionEvaluator: {
           rt.config.endianness,
         );
         const t = new TemporaryObject(int(), res);
-        rt.stash.push(t);
+        rt.stash.pushWithoutConversions(t);
         return;
       }
       case "^":
@@ -384,30 +674,76 @@ export const instructionEvaluator: {
   [InstructionType.POP]: (rt: Runtime) => {
     rt.stash.pop();
   },
-  [InstructionType.ASSIGN]: (
-    rt: Runtime,
-    { identifier, typeInfo }: AssignInstruction,
-  ) => {
-    const address = rt.symbolTable.getAddress(identifier);
+  [InstructionType.PUSH]: (rt: Runtime, { item }: PushInstruction) => {
+    rt.stash.pushWithoutConversions(item);
+  },
+  [InstructionType.ASSIGN]: (rt: Runtime) => {
     const o = rt.stash.pop();
     if (!isTemporaryObject(o)) throw new Error("expected object for assign");
-    if (isArithmeticType(typeInfo) && isArithmeticType(o.typeInfo)) {
-      const n = bytesToBigint(
-        o.bytes,
-        isSigned(o.typeInfo),
-        rt.config.endianness,
-      );
-      rt.memory.setBytes(
-        address,
-        BIGINT_TO_BYTES[typeInfo.type](n, rt.config.endianness),
-      );
-      return;
+
+    const ptr = rt.stash.pop();
+    if (
+      !(
+        isTemporaryObject(ptr) &&
+        isPointer(ptr.typeInfo) &&
+        isObjectTypeInfo(ptr.typeInfo.referencedType)
+      )
+    )
+      throw new Error("expected ptr to object for assign");
+
+    const address = Number(
+      bytesToBigint(ptr.bytes, isSigned(ptr.typeInfo), rt.config.endianness),
+    );
+    const typeInfo = ptr.typeInfo.referencedType;
+
+    if (
+      checkSimpleAssignmentConstraint(
+        typeInfo,
+        o.typeInfo,
+        isIntegerType(o.typeInfo) &&
+          bytesToBigint(o.bytes, isSigned(o.typeInfo), rt.config.endianness) ===
+            BigInt(0),
+      )
+    ) {
+      if (isScalarType(typeInfo) && isScalarType(o.typeInfo)) {
+        const n = bytesToBigint(
+          o.bytes,
+          isSigned(o.typeInfo),
+          rt.config.endianness,
+        );
+        rt.memory.setScalar(address, n, typeInfo, rt.config.endianness);
+        rt.stash.pushWithoutConversions(
+          new TemporaryObject(
+            typeInfo,
+            BIGINT_TO_BYTES[typeInfo.type](n, rt.config.endianness),
+          ),
+        );
+        return;
+      }
+      if (isStructure(typeInfo) && isStructure(o.typeInfo)) {
+        rt.memory.setObjectBytes(address, o.bytes, typeInfo);
+        rt.stash.pushWithoutConversions(o);
+      }
     }
-    // TODO: implement for other types
+
     throw new Error("unexpected types for assign");
   },
-  [InstructionType.MARK]: () => {
-    throw new Error("mark encountered without return");
+  [InstructionType.MARK]: (rt: Runtime) => {
+    const idx = rt.functionCalls.peek();
+    if (rt.getFunctions()[idx][0] !== "main") {
+      throw new Error("mark encountered without return");
+    }
+    // main implicitly returns 0 if no return statement
+    rt.stash.pushWithoutConversions(
+      new TemporaryObject(
+        int(),
+        BIGINT_TO_BYTES[Type.Int](BigInt(0), rt.config.endianness),
+      ),
+    );
+    const block = rt.symbolTable.exitBlock();
+    Object.values(block).forEach((addr) => rt.effectiveTypeTable.remove(addr));
+    rt.stack.pop();
+    rt.functionCalls.pop();
   },
   [InstructionType.EXIT]: (rt: Runtime) => {
     const o = rt.stash.pop();
@@ -442,23 +778,25 @@ export const instructionEvaluator: {
       isSigned(o.typeInfo),
       rt.config.endianness,
     );
-    const fnIdxBytes = rt.memory.getBytes(
-      Number(fnAddr),
-      o.typeInfo.size,
-      true,
-    );
+    const fnIdxBytes = rt.memory.getBytes(Number(fnAddr), SHRT_SIZE, true);
     const fnIdx = bytesToBigint(
       fnIdxBytes,
       isSigned(shortInt()),
       rt.config.endianness,
     );
-    const fnBody = rt.getFunction(Number(fnIdx));
 
+    if (fnIdx < 0) {
+      const builtinFn = rt.getBuiltinFunction(-Number(fnIdx) - 1);
+      builtinFn.body(rt, args);
+      return;
+    }
+
+    const [fnBody, fnType] = rt.getFunction(Number(fnIdx));
+    rt.functionCalls.push(Number(fnIdx));
     rt.agenda.push(markInstruction());
     if (fnBody.value.length === 1) rt.agenda.push(fnBody.value[0]);
     else rt.agenda.push(fnBody);
 
-    const fnType = o.typeInfo.referencedType;
     const frame = RuntimeStack.calculateStackFrame(
       fnType.parameterTypes,
       fnBody,
@@ -473,32 +811,31 @@ export const instructionEvaluator: {
 
       const address = rt.stack.rbp + frame[identifier].address;
       rt.symbolTable.addAddress(identifier, address);
+      rt.effectiveTypeTable.add(address, typeInfo);
 
-      const o = args[i];
-      if (
-        !(
-          isTemporaryObject(o) &&
-          isArithmeticType(o.typeInfo) &&
-          isArithmeticType(typeInfo)
-        )
-      )
-        throw new Error("not implemented");
-      const n = bytesToBigint(
-        o.bytes,
-        isSigned(o.typeInfo),
-        rt.config.endianness,
-      );
-      rt.memory.setBytes(
-        address,
-        BIGINT_TO_BYTES[typeInfo.type](n, rt.config.endianness),
+      rt.agenda.push(popInstruction());
+      rt.agenda.push(assignInstruction());
+      rt.agenda.push(pushInstruction(args[i]));
+      rt.agenda.push(
+        pushInstruction(
+          new TemporaryObject(
+            pointer(typeInfo),
+            BIGINT_TO_BYTES[Type.Pointer](
+              BigInt(address),
+              rt.config.endianness,
+            ),
+          ),
+        ),
       );
     }
   },
   [InstructionType.RETURN]: (rt: Runtime) => {
     while (!isMarkInstruction(rt.agenda.peek())) rt.agenda.pop();
     rt.agenda.pop();
-    rt.symbolTable.exitBlock();
+    const block = rt.symbolTable.exitBlock();
+    Object.values(block).forEach((addr) => rt.effectiveTypeTable.remove(addr));
     rt.stack.pop();
+    rt.functionCalls.pop();
   },
   [InstructionType.BRANCH]: (
     rt: Runtime,
@@ -532,7 +869,96 @@ export const instructionEvaluator: {
     );
     const res = BIGINT_TO_BYTES[typeInfo.type](n, rt.config.endianness);
     const t = new TemporaryObject(typeInfo, res);
-    rt.stash.push(t);
+    rt.stash.pushWithoutConversions(t);
+  },
+  [InstructionType.CAST]: (rt: Runtime, { targetType }: CastInstruction) => {
+    const o = rt.stash.pop();
+    if (isVoid(targetType)) return;
+    if (!(isTemporaryObject(o) && isScalarType(o.typeInfo)))
+      throw new Error("expected scalar type");
+    if (o.typeInfo.isCompatible(targetType)) return;
+    const val = bytesToBigint(
+      o.bytes,
+      isSigned(o.typeInfo),
+      rt.config.endianness,
+    );
+
+    let res: bigint | null = null;
+    if (
+      checkSimpleAssignmentConstraint(
+        targetType,
+        o.typeInfo,
+        isIntegerType(o.typeInfo) && val === BigInt(0),
+      )
+    )
+      res = val;
+    if (isIntegerType(o.typeInfo) && isPointer(targetType)) res = val;
+    if (isPointer(o.typeInfo) && isIntegerType(targetType)) res = val;
+    if (
+      isPointer(o.typeInfo) &&
+      isObjectTypeInfo(o.typeInfo.referencedType) &&
+      isPointer(targetType) &&
+      isObjectTypeInfo(targetType.referencedType)
+    )
+      res = val;
+    if (
+      isPointer(o.typeInfo) &&
+      isFunction(o.typeInfo.referencedType) &&
+      isPointer(targetType) &&
+      isFunction(targetType.referencedType)
+    )
+      res = val;
+
+    if (res === null) throw new Error("invalid cast");
+    const bytes = BIGINT_TO_BYTES[targetType.type](res, rt.config.endianness);
+    const t = new TemporaryObject(targetType, bytes);
+    rt.stash.pushWithoutConversions(t);
+  },
+  [InstructionType.ARRAY_SUBSCRIPT]: (
+    rt: Runtime,
+    { evaluateAsLvalue }: ArraySubscriptInstruction,
+  ) => {
+    let r = rt.stash.pop();
+    let l = rt.stash.pop();
+    if (!(isTemporaryObject(l) && isTemporaryObject(r)))
+      throw new Error("expected 2 objects for array subscript");
+
+    if (isPointer(r.typeInfo)) [l, r] = [r, l];
+    if (
+      !(
+        isPointer(l.typeInfo) &&
+        isObjectTypeInfo(l.typeInfo.referencedType) &&
+        isIntegerType(r.typeInfo)
+      )
+    )
+      throw new Error(
+        "expected ptr to object and integer type for array subscript",
+      );
+    const offset = Number(
+      bytesToBigint(r.bytes, isSigned(r.typeInfo), rt.config.endianness),
+    );
+    const addr = Number(
+      bytesToBigint(l.bytes, isSigned(l.typeInfo), rt.config.endianness),
+    );
+    const newAddr = addr + offset * l.typeInfo.referencedType.size;
+    if (!evaluateAsLvalue) {
+      rt.stash.push(
+        rt,
+        new TemporaryObject(
+          l.typeInfo.referencedType,
+          rt.memory.getObjectBytes(newAddr, l.typeInfo.referencedType),
+          newAddr,
+        ),
+        newAddr,
+      );
+    } else {
+      rt.stash.pushWithoutConversions(
+        new TemporaryObject(
+          pointer(applyImplicitConversions(l.typeInfo.referencedType)),
+          BIGINT_TO_BYTES[Type.Pointer](BigInt(newAddr), rt.config.endianness),
+        ),
+      );
+    }
   },
 };
 
@@ -543,4 +969,90 @@ const convertValue = (
 ): bigint => {
   const bytes = BIGINT_TO_BYTES[t.type](i, e);
   return bytesToBigint(bytes, isSigned(t), e);
+};
+
+const evaluateInitializer = (
+  t: TypedInitializer,
+  address: number,
+  tt: ObjectTypeInfo,
+  rt: Runtime,
+): void => {
+  if (!isTypedInitializerList(t)) {
+    rt.agenda.push(popInstruction());
+    rt.agenda.push(assignInstruction());
+    rt.agenda.push(t);
+    rt.agenda.push(
+      pushInstruction(
+        new TemporaryObject(
+          pointer(tt),
+          BIGINT_TO_BYTES[Type.Pointer](BigInt(address), rt.config.endianness),
+        ),
+      ),
+    );
+    return;
+  }
+  if (isScalarType(tt)) {
+    rt.agenda.push(popInstruction());
+    rt.agenda.push(assignInstruction());
+    rt.agenda.push(t.value[0].initializer);
+    rt.agenda.push(
+      pushInstruction(
+        new TemporaryObject(
+          pointer(tt),
+          BIGINT_TO_BYTES[Type.Pointer](BigInt(address), rt.config.endianness),
+        ),
+      ),
+    );
+    return;
+  }
+  if (!(isStructure(tt) || isArray(tt)))
+    throw new Error("invalid initialization");
+
+  let i = 0;
+  t.value.forEach(({ designation, initializer }) => {
+    let currType: ObjectTypeInfo = tt;
+    let currAddress = isArray(tt)
+      ? address + i * tt.elementType.size
+      : address + tt.members[i].relativeAddress;
+
+    if (designation.length) {
+      let first = true;
+      for (const d of designation) {
+        if (isTypedArrayDesignator(d)) {
+          if (!isArray(currType))
+            throw "array designator when current object is not array";
+          const idxVal = Number(d.idx.value);
+          if (first) i = idxVal;
+          currAddress += i * currType.elementType.size;
+          currType = currType.elementType;
+        } else {
+          if (!isStructure(currType))
+            throw "struct designator when current object is not struct";
+          const [idx, relativeAddress, typeInfo] = getMember(
+            currType,
+            d.identifier,
+          );
+          if (first) i = idx;
+          currAddress += relativeAddress;
+          currType = typeInfo;
+        }
+        first = false;
+      }
+    } else {
+      currType = isArray(tt) ? tt.elementType : tt.members[i].type;
+    }
+
+    i++;
+    evaluateInitializer(initializer, currAddress, currType, rt);
+  });
+};
+
+const applyImplicitConversions = (t: TypeInfo): TypeInfo => {
+  if (isArray(t)) {
+    return pointer(t.elementType);
+  }
+  if (isFunction(t)) {
+    return pointer(t);
+  }
+  return t;
 };

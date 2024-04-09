@@ -33,9 +33,11 @@ export class FunctionDesignator implements IdentifiableAndAddressable {
 // https://en.cppreference.com/w/cpp/language/object
 abstract class CvizObject {
   public readonly typeInfo: ObjectTypeInfo;
+  public readonly size: number;
 
   public constructor(typeInfo: ObjectTypeInfo) {
     this.typeInfo = typeInfo;
+    this.size = typeInfo.size;
   }
 
   public abstract get bytes(): number[];
@@ -43,8 +45,13 @@ abstract class CvizObject {
 
 export class TemporaryObject extends CvizObject {
   private readonly _bytes: number[];
+  public readonly address: number | null;
 
-  public constructor(typeInfo: ObjectTypeInfo, bytes: number[]) {
+  public constructor(
+    typeInfo: ObjectTypeInfo,
+    bytes: number[],
+    address: number | null = null,
+  ) {
     super(typeInfo);
     if (typeInfo.size !== bytes.length) {
       throw (
@@ -56,6 +63,7 @@ export class TemporaryObject extends CvizObject {
     }
     bytes.forEach(checkValidByte);
     this._bytes = bytes;
+    this.address = address;
   }
 
   public get bytes() {
@@ -92,10 +100,6 @@ export class RuntimeObject
   }
 
   public get bytes() {
-    const res = [];
-    for (let i = 0; i < this.typeInfo.size; i++) {
-      res.push(this.memory.getByte(this.address + i));
-    }
-    return res;
+    return this.memory.getObjectBytes(this.address, this.typeInfo);
   }
 }

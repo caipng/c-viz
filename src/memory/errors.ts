@@ -1,3 +1,5 @@
+import { decimalAddressToHex } from "../utils";
+
 export class MemoryError extends Error {
   constructor(msg: string) {
     super(msg);
@@ -13,18 +15,18 @@ export class SegmentationFault extends MemoryError {
 
 export class ReadSegmentationFault extends SegmentationFault {
   constructor(address: number) {
-    super("read " + address);
+    super("read " + decimalAddressToHex(address));
   }
 }
 
 export class WriteSegmentationFault extends SegmentationFault {
   constructor(address: number) {
-    super("write to " + address);
+    super("write to " + decimalAddressToHex(address));
   }
 }
 
 export class ExecuteSegmentationFault extends SegmentationFault {
   constructor(address: number) {
-    super("execute " + address);
+    super("execute " + decimalAddressToHex(address));
   }
 }

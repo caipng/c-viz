@@ -41,13 +41,19 @@ export enum Type {
 
   Void = "void",
 
-  Array = "array",
+  Array = "arr",
   Structure = "struct",
-  Function = "function",
+  Function = "fn",
   Pointer = "ptr",
 }
 
-export const getTypeName = (i: Type): string => i;
+export const getTypeName = (i: TypeInfo): string => {
+  if (isArray(i)) return i.type + " of " + getTypeName(i.elementType);
+  if (isFunction(i)) return i.type + " returning " + getTypeName(i.returnType);
+  if (isPointer(i)) return i.type + " to " + getTypeName(i.referencedType);
+  if (isStructure(i)) return i.type + (i.tag ? " " + i.tag : "");
+  return i.type;
+};
 
 // types are partitioned into object types (fully describes object),
 // function types (describes function), and incomplete types (lack info to determine sizes)
@@ -85,6 +91,17 @@ export const isSignedIntegerType = (t: TypeInfo): t is SignedIntegerType =>
   isLongInt(t) ||
   isLongLongInt(t);
 
+export const getUnsignedVersion = (
+  t: SignedIntegerType,
+): UnsignedIntegerType => {
+  if (isSignedChar(t)) return unsignedChar();
+  if (isShortInt(t)) return unsignedShortInt();
+  if (isInt(t)) return unsignedInt();
+  if (isLongInt(t)) return unsignedLongInt();
+  if (isLongLongInt(t)) return unsignedLongLongInt();
+  throw new Error("unrecognized signed integer type");
+};
+
 export type UnsignedIntegerType =
   | _Bool
   | UnsignedChar
@@ -100,6 +117,15 @@ export const isUnsignedIntegerType = (t: TypeInfo): t is UnsignedIntegerType =>
   isUnsignedInt(t) ||
   isUnsignedLongInt(t) ||
   isUnsignedLongLongInt(t);
+
+export const getSignedVersion = (t: UnsignedIntegerType): SignedIntegerType => {
+  if (isUnsignedChar(t)) return signedChar();
+  if (isUnsignedShortInt(t)) return shortInt();
+  if (isUnsignedInt(t)) return int();
+  if (isUnsignedLongInt(t)) return longInt();
+  if (isUnsignedLongLongInt(t)) return longLongInt();
+  throw new Error("unrecognized unsigned integer type");
+};
 
 export type BasicType = Char | SignedIntegerType | UnsignedIntegerType;
 
@@ -381,6 +407,7 @@ export const isArray = (t: TypeInfo): t is Array => t.type === Type.Array;
 export interface StructureMember {
   name?: string;
   type: ObjectTypeInfo;
+  relativeAddress: number;
 }
 
 export interface Structure extends ObjectTypeInfo {
@@ -390,16 +417,21 @@ export interface Structure extends ObjectTypeInfo {
 }
 
 export const structure = (
-  members: StructureMember[],
+  m: {
+    name?: string;
+    type: ObjectTypeInfo;
+  }[],
   tag?: string,
 ): Structure => {
   // the alignment of a structure must be at least as strict as the alignment of its strictest member
-  const strictestAlignment = Math.max(...members.map((m) => m.type.alignment));
+  const strictestAlignment = Math.max(...m.map((i) => i.type.alignment));
+  const members: StructureMember[] = [];
 
   let currAddr = 0; // next free addr
-  for (const m of members) {
-    currAddr = roundUpM(currAddr, m.type.alignment);
-    currAddr += m.type.size;
+  for (const i of m) {
+    currAddr = roundUpM(currAddr, i.type.alignment);
+    members.push({ ...i, relativeAddress: currAddr });
+    currAddr += i.type.size;
   }
   // add padding at end for array of struct
   currAddr = roundUpM(currAddr, strictestAlignment);

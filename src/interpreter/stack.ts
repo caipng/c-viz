@@ -1,6 +1,6 @@
 import { Identifier, TypedCompoundStatement } from "../ast/types";
 import { ObjectTypeInfo, ParameterTypeAndIdentifier } from "../typing/types";
-import { Stack } from "../utils";
+import { Stack, roundUpM } from "../utils";
 
 export type StackFrame = Record<
   Identifier,
@@ -13,26 +13,35 @@ export type StackFrame = Record<
 export class RuntimeStack extends Stack<StackFrame> {
   private _rbp: number;
   private _rsp: number;
+  private _rbpStack: Stack<number>;
+  private _rspStack: Stack<number>;
 
   constructor(stackBaseAddress: number) {
     super();
     this._rbp = stackBaseAddress;
     this._rsp = stackBaseAddress;
+    this._rbpStack = new Stack();
+    this._rspStack = new Stack();
+  }
+
+  getRbpArr(): number[] {
+    return this._rbpStack.getArr();
   }
 
   override push(x: StackFrame): void {
+    this._rbpStack.push(this._rbp);
+    this._rspStack.push(this._rsp);
     super.push(x);
-    this._rbp = this._rsp + 1;
-    this._rsp += RuntimeStack.getStackFrameSize(x);
+
+    const [size, alignment] = RuntimeStack.getStackFrameSizeAndAlignment(x);
+    this._rbp = roundUpM(this._rsp + 1, alignment);
+    this._rsp = this._rbp + size - 1;
   }
 
   override pop(): StackFrame {
-    const res = super.pop();
-    this._rsp = this._rbp - 1;
-    if (super.isEmpty()) this._rbp = this._rsp;
-    else
-      this._rbp = this._rsp - RuntimeStack.getStackFrameSize(super.peek()) + 1;
-    return res;
+    this._rsp = this._rspStack.pop();
+    this._rbp = this._rbpStack.pop();
+    return super.pop();
   }
 
   get rbp(): number {
@@ -52,6 +61,7 @@ export class RuntimeStack extends Stack<StackFrame> {
     let ptr = 0;
     for (const p of params) {
       if (!p.identifier) throw new Error("param missing identifier");
+      ptr = roundUpM(ptr, p.type.alignment);
       res[p.identifier] = {
         address: ptr,
         typeInfo: p.type,
@@ -61,7 +71,15 @@ export class RuntimeStack extends Stack<StackFrame> {
     return res;
   }
 
-  static getStackFrameSize(f: StackFrame): number {
-    return Object.values(f).reduce((A, i) => A + i.typeInfo.size, 0);
+  static getStackFrameSizeAndAlignment(f: StackFrame): [number, number] {
+    const size = Math.max(
+      1,
+      ...Object.values(f).map((i) => i.address + i.typeInfo.size),
+    );
+    const alignment = Math.max(
+      1,
+      ...Object.values(f).map((i) => i.typeInfo.alignment),
+    );
+    return [size, alignment];
   }
 }

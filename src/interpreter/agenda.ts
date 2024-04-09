@@ -19,8 +19,11 @@ export function isInstruction(i: AgendaItem): i is Instruction {
 }
 
 export class Agenda extends Stack<AgendaItem> {
+  private lvalueFlagStack: Stack<boolean>;
+
   constructor(program: TypedTranslationUnit) {
     super();
+    this.lvalueFlagStack = new Stack();
 
     const mainFunction: TypedPrimaryExprIdentifier = {
       type: "PrimaryExprIdentifier",
@@ -44,5 +47,28 @@ export class Agenda extends Stack<AgendaItem> {
     this.push(callInstruction(0));
     this.push(mainFunction);
     this.push(program);
+  }
+
+  override push(x: AgendaItem): void {
+    this.lvalueFlagStack.push(false);
+    super.push(x);
+  }
+
+  public pushAsLvalue(x: AgendaItem): void {
+    this.lvalueFlagStack.push(true);
+    super.push(x);
+  }
+
+  override pop(): AgendaItem {
+    this.lvalueFlagStack.pop();
+    return super.pop();
+  }
+
+  public topIsLvalue(): boolean {
+    return this.lvalueFlagStack.peek();
+  }
+
+  public getLvalueFlags(): boolean[] {
+    return this.lvalueFlagStack.getArr();
   }
 }

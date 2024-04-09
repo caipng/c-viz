@@ -1,3 +1,4 @@
+import { cloneDeep } from "lodash";
 import { Identifier } from "../ast/types";
 
 export class SymbolTable {
@@ -8,9 +9,10 @@ export class SymbolTable {
     this.blockScopes.push({});
   }
 
-  exitBlock(): void {
-    if (this.blockScopes.length === 1) throw new RangeError("no block to exit");
-    this.blockScopes.pop();
+  exitBlock(): Record<Identifier, number> {
+    const res = this.blockScopes.pop();
+    if (res === undefined) throw new RangeError("no block to exit");
+    return res;
   }
 
   getAddress(id: Identifier): number {
@@ -23,6 +25,20 @@ export class SymbolTable {
       return this.fileScope[id];
     }
     throw "identifier " + id + " not declared";
+  }
+
+  getIdentifier(addr: number): string {
+    for (let i = this.blockScopes.length - 1; i >= 0; i--) {
+      const res = Object.keys(this.blockScopes[i]).find(
+        (k) => this.blockScopes[i][k] === addr,
+      );
+      if (res !== undefined) return res;
+    }
+    const res = Object.keys(this.fileScope).find(
+      (k) => this.fileScope[k] === addr,
+    );
+    if (res !== undefined) return res;
+    throw "address " + addr + " not found";
   }
 
   addAddress(id: Identifier, address: number): void {
@@ -40,5 +56,13 @@ export class SymbolTable {
 
   get inFileScope(): boolean {
     return this.blockScopes.length === 0;
+  }
+
+  getFileScope() {
+    return cloneDeep(this.fileScope);
+  }
+
+  getBlockScopes() {
+    return cloneDeep(this.blockScopes);
   }
 }

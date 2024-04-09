@@ -133,3 +133,4 @@ lib/
 .tscache
 src/cparser.js
 .vscode/settings.json
+c-viz.code-workspace

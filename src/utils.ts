@@ -76,3 +76,7 @@ export function checkValidByte(i: number) {
 export function mod(a: bigint, b: bigint): bigint {
   return ((a % b) + b) % b;
 }
+
+export function decimalAddressToHex(addr: number) {
+  return "0x" + ("00000000" + addr.toString(16).toUpperCase()).slice(-8);
+}

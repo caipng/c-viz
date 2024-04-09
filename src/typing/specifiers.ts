@@ -1,7 +1,9 @@
 import {
-  DeclarationSpecifiers,
   StructSpecifier,
+  TypeSpecifier,
+  isStorageClassSpecifier,
   isStructSpecifier,
+  isTypeSpecifier,
 } from "../ast/types";
 import {
   CHAR_MAX,
@@ -22,10 +24,10 @@ import {
   ULONG_MAX,
   USHRT_MAX,
 } from "../constants";
+import { TypeEnv } from "./env";
 import {
   IntegerType,
   Structure,
-  StructureMember,
   TypeInfo,
   unsignedInt,
   Void,
@@ -138,7 +140,8 @@ const unorderedCompare = (s1: string, s2: string): boolean =>
   s1.split(" ").sort().join(" ") === s2.split(" ").sort().join(" ");
 
 export const getTypeInfoFromSpecifiers = (
-  ls: DeclarationSpecifiers,
+  ls: TypeSpecifier[],
+  env: TypeEnv | null = null,
 ): TypeInfo => {
   if (ls.length === 0) throw "at least one type specifier must be given";
 
@@ -146,7 +149,7 @@ export const getTypeInfoFromSpecifiers = (
   if (n > 1) throw "more than 1 struct specifier";
   if (n === 1) {
     if (ls.length !== 1) throw "struct specifier should be the only specifier";
-    return constructStructFromSpecifier(ls[0] as StructSpecifier);
+    return constructStructFromSpecifier(ls[0] as StructSpecifier, env);
   }
 
   const s = ls.join(" ");
@@ -156,26 +159,31 @@ export const getTypeInfoFromSpecifiers = (
     }
   }
 
-  throw (
-    "unknown type specifier " +
-    JSON.stringify(ls) +
-    ", expected one of " +
-    JSON.stringify(Object.keys(TYPE_SPECIFIER_TO_TYPE_INFO))
-  );
+  if (!env) throw "unknown type specifiers";
+  if (ls.length > 1)
+    throw "more than 1 typedef specified or unknown type specifiers";
+  return env.getIdentifierTypeInfo(ls[0] as string, true);
 };
 
-const constructStructFromSpecifier = (s: StructSpecifier): Structure => {
-  if (s.declarationList.length === 0)
-    throw "struct specifier cannot be empty (forward declarations are not supported)";
-
+const constructStructFromSpecifier = (
+  s: StructSpecifier,
+  env: TypeEnv | null,
+): Structure => {
   const tag = s.identifier || undefined;
-  const members: StructureMember[] = [];
+  const members = [];
 
   for (const d of s.declarationList) {
     for (const id of d.declaratorList) {
+      const storageClassSpecifiers = d.specifiers.filter(
+        isStorageClassSpecifier,
+      );
+      if (storageClassSpecifiers.length > 0)
+        throw "typedef in struct definition";
+      const typeSpecifiers = d.specifiers.filter(isTypeSpecifier);
       const { identifier: name, type } = constructType(
-        d.specifiers,
+        typeSpecifiers,
         id.declarator,
+        env,
       );
       if (!isObjectTypeInfo(type)) throw "non object type declared in struct";
       if (name) members.push({ name, type });
@@ -183,7 +191,27 @@ const constructStructFromSpecifier = (s: StructSpecifier): Structure => {
     }
   }
 
-  return structure(members, tag);
+  const res = structure(members, tag);
+  if (tag) {
+    let other: Structure | undefined;
+    try {
+      other = env?.getTagTypeInfo(tag);
+    } catch (e) {
+      other = undefined;
+    }
+    if (s.declarationList.length === 0) {
+      if (!other) throw "empty struct specifier";
+      return other;
+    }
+    if (other) {
+      if (!res.isCompatible(other)) throw "redefinition of struct " + tag;
+    } else {
+      env?.addTagTypeInfo(tag, res);
+    }
+  } else {
+    if (s.declarationList.length === 0) throw "empty struct specifier";
+  }
+  return res;
 };
 
 export const getNumericalLimitFromSpecifiers = (
@@ -207,5 +235,5 @@ export const typeInfoToSpecifier = (typeInfo: IntegerType | Void): string => {
   for (const [specifier, t] of Object.entries(TYPE_SPECIFIER_TO_TYPE_INFO)) {
     if (t.type === typeInfo.type) return specifier;
   }
-  throw "type " + getTypeName(typeInfo.type) + " has no specifier";
+  throw "type " + getTypeName(typeInfo) + " has no specifier";
 };

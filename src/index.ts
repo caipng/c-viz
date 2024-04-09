@@ -3,7 +3,7 @@ import * as cparser from "./cparser";
 import { TranslationUnit, TypedTranslationUnit } from "./ast/types";
 import { typeTranslationUnit } from "./typing/main";
 import { Runtime } from "./interpreter/runtime";
-import { DEFAULT_CONFIG } from "./config";
+import { DEFAULT_CONFIG, RuntimeConfig } from "./config";
 
 export default {
   parseProgram(source: string): TranslationUnit {
@@ -20,9 +20,10 @@ export default {
       throw new Error("" + err);
     }
   },
-  run(source: string): Runtime {
+  run(source: string, config: Partial<RuntimeConfig> = {}): Runtime {
     const program = this.parseProgram(source);
     const typedTranslationUnit = this.typeCheck(program);
-    return new Runtime(typedTranslationUnit, DEFAULT_CONFIG);
+    const c: RuntimeConfig = { ...DEFAULT_CONFIG, ...config };
+    return new Runtime(typedTranslationUnit, c);
   },
 };
