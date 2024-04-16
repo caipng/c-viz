@@ -105,6 +105,7 @@ export class Memory {
     t: ObjectTypeInfo,
     toExecute: boolean = false,
   ): number[] {
+    this.getMemoryRegion(address);
     this.checkValidObjectAccess(address, t);
     return this.getBytes(address, t.size, toExecute);
   }
@@ -143,6 +144,7 @@ export class Memory {
     if (bytes.length !== t.size)
       throw new Error("object size and bytes provided don't match");
 
+    this.getMemoryRegion(address);
     this.checkValidObjectAccess(address, t);
     if (this.effectiveTypeTable.get(address) === NO_EFFECTIVE_TYPE) {
       try {
