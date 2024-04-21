@@ -1,4 +1,10 @@
-import { Identifier, TypedCompoundStatement } from "../ast/types";
+import {
+  Identifier,
+  TypedCompoundStatement,
+  isTypedCompoundStatement,
+  isTypedDeclaration,
+  isTypedefDeclaration,
+} from "../ast/types";
 import { ObjectTypeInfo, ParameterTypeAndIdentifier } from "../typing/types";
 import { Stack, roundUpM } from "../utils";
 
@@ -54,11 +60,11 @@ export class RuntimeStack extends Stack<StackFrame> {
 
   static calculateStackFrame(
     params: ParameterTypeAndIdentifier[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     body: TypedCompoundStatement,
   ): StackFrame {
     const res: StackFrame = {};
     let ptr = 0;
+
     for (const p of params) {
       if (!p.identifier) throw new Error("param missing identifier");
       ptr = roundUpM(ptr, p.type.alignment);
@@ -68,6 +74,33 @@ export class RuntimeStack extends Stack<StackFrame> {
       };
       ptr += p.type.size;
     }
+
+    const identifierPrefix: string[] = [];
+    const scan = (stmts: TypedCompoundStatement): void => {
+      let blockNo = 0;
+      stmts.value.forEach((i) => {
+        if (isTypedDeclaration(i)) {
+          i.declaratorList.forEach((j) => {
+            const typeInfo = j.typeInfo;
+            const qid =
+              identifierPrefix.join("::") +
+              (identifierPrefix.length ? "::" : "") +
+              j.identifier;
+            j.qualifiedIdentifier = qid; 
+            ptr = roundUpM(ptr, typeInfo.alignment);
+            res[qid] = { address: ptr, typeInfo };
+            ptr += typeInfo.size;
+          });
+        } else if (!isTypedefDeclaration(i) && isTypedCompoundStatement(i)) {
+          identifierPrefix.push("block" + blockNo);
+          scan(i);
+          identifierPrefix.pop();
+          blockNo++;
+        }
+      });
+    };
+    scan(body);
+
     return res;
   }
 

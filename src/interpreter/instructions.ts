@@ -17,6 +17,7 @@ export enum InstructionType {
   ARITHMETIC_CONVERSION = "ArithmeticConversion",
   CAST = "Cast",
   ARRAY_SUBSCRIPT = "ArraySubscript",
+  EXIT_BLOCK ="ExitBlock"
 }
 
 export interface BaseInstruction {
@@ -163,6 +164,12 @@ export const arraySubscriptInstruction = (
   evaluateAsLvalue,
 });
 
+export interface ExitBlockInstruction extends BaseInstruction {
+  type: InstructionType.EXIT_BLOCK;
+}
+
+export const exitBlockInstruction = () :ExitBlockInstruction => ({type:InstructionType.EXIT_BLOCK});
+
 export type Instruction =
   | UnaryOpInstruction
   | BinaryOpInstruction
@@ -176,4 +183,5 @@ export type Instruction =
   | AssignInstruction
   | ArithmeticConversionInstruction
   | CastInstruction
-  | ArraySubscriptInstruction;
+  | ArraySubscriptInstruction
+  | ExitBlockInstruction

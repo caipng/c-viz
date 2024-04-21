@@ -20,6 +20,7 @@ import {
   EffectiveTypeTable,
   EffectiveTypeTableEntry,
 } from "./effectiveTypeTable";
+import { InitializedTable } from "./initializedTable";
 
 export type TextAndDataEntry = FunctionDesignator | RuntimeObject;
 
@@ -43,6 +44,7 @@ export class RuntimeView {
   rbpArr: number[];
   heap: Record<number, HeapEntry>;
   effectiveTypeTable: Record<number, EffectiveTypeTableEntry>;
+  initTable: InitializedTable;
 
   constructor(rt: Runtime) {
     this.agenda = rt.agenda.getArr();
@@ -59,6 +61,7 @@ export class RuntimeView {
     this.rbpArr.push(rt.stack.rbp);
     this.heap = rt.heap.getAllocations();
     this.effectiveTypeTable = rt.effectiveTypeTable.getTable();
+    this.initTable = cloneDeep(rt.initTable)
   }
 }
 
@@ -73,6 +76,7 @@ export class Runtime {
   public readonly stack: RuntimeStack;
   public readonly functionCalls: Stack<number>;
   public readonly heap: Heap;
+  public readonly initTable: InitializedTable;
 
   private functions: [string, TypedCompoundStatement, FunctionType][];
   private builtinFunctions: BuiltinFunction[];
@@ -94,6 +98,7 @@ export class Runtime {
       config.memory.heap.baseAddress,
       config.memory.heap.baseAddress + config.memory.heap.size,
     );
+    this.initTable = new InitializedTable()
 
     this.functions = [];
     this.builtinFunctions = [];

@@ -76,8 +76,9 @@ export class RuntimeObject
   implements IdentifiableAndAddressable
 {
   public readonly address: number;
-  public readonly identifier: Identifier;
+  public initialized: boolean;
   private readonly memory: Memory;
+  private _identifier: Identifier;
 
   public constructor(
     typeInfo: ObjectTypeInfo,
@@ -95,11 +96,20 @@ export class RuntimeObject
         typeInfo.alignment +
         ")"
       );
-    this.identifier = identifier;
+    this._identifier = identifier;
     this.memory = memory;
+    this.initialized = false;
   }
 
   public get bytes() {
     return this.memory.getObjectBytes(this.address, this.typeInfo);
+  }
+
+  public get identifier() {
+    return this._identifier;
+  }
+
+  public setIdentifier(i: Identifier) {
+    this._identifier = i;
   }
 }

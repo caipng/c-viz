@@ -132,6 +132,9 @@ export interface TypedDeclaration extends BaseNode {
   declaratorList: TypedInitDeclarator[];
 }
 
+export const isTypedDeclaration = (i: TypedBlockItem): i is TypedDeclaration =>
+  i.type === "Declaration";
+
 export interface TypedefDeclaration extends BaseNode {
   type: "TypedefDeclaration";
   declaratorList: Typedef[];
@@ -185,6 +188,7 @@ export interface InitDeclarator extends BaseNode {
 export interface TypedInitDeclarator extends BaseNode {
   type: "InitDeclarator";
   identifier: Identifier;
+  qualifiedIdentifier?: Identifier;
   typeInfo: ObjectTypeInfo;
   initializer: TypedInitializer | null;
 }
@@ -337,6 +341,10 @@ export interface TypedCompoundStatement extends BaseNode {
   type: "CompoundStatement";
   value: TypedBlockItem[];
 }
+
+export const isTypedCompoundStatement = (
+  i: TypedStatement,
+): i is TypedCompoundStatement => i.type === "CompoundStatement";
 
 export type BlockItem = Statement | Declaration;
 

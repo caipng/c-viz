@@ -68,6 +68,7 @@ import {
   branchInstruction,
   callInstruction,
   castInstruction,
+  exitBlockInstruction,
   isMarkInstruction,
   markInstruction,
   popInstruction,
@@ -88,6 +89,7 @@ import { Endianness } from "../config";
 import { RuntimeStack } from "./stack";
 import { SHRT_SIZE } from "../constants";
 import { checkSimpleAssignmentConstraint, getMember } from "../typing/utils";
+import { NO_EFFECTIVE_TYPE } from "./effectiveTypeTable";
 
 export const ASTNodeEvaluator: {
   [NodeType in TypedASTNode["type"]]: (
@@ -134,18 +136,22 @@ export const ASTNodeEvaluator: {
   TypedefDeclaration: () => {},
   InitDeclarator: (
     rt: Runtime,
-    { identifier, typeInfo, initializer }: TypedInitDeclarator,
+    { identifier, typeInfo, initializer, qualifiedIdentifier }: TypedInitDeclarator,
   ) => {
-    if (!rt.symbolTable.inFileScope) {
-      throw new Error("declarations in functions not implemented");
+    let address: number;
+    if (rt.symbolTable.inFileScope) {
+      address = rt.allocateAndZeroData(typeInfo);
+      const o = new RuntimeObject(typeInfo, address, identifier, rt.memory);
+      o.initialized = true;
+      rt.textAndData.push(o);
+    } else {
+      if (!qualifiedIdentifier) throw new Error("missing call to calculateStackFrame");
+      const frame = rt.stack.peek();
+      address = rt.stack.rbp + frame[qualifiedIdentifier].address;
     }
 
-    const address = rt.allocateAndZeroData(typeInfo);
-    const o = new RuntimeObject(typeInfo, address, identifier, rt.memory);
-    rt.textAndData.push(o);
     rt.symbolTable.addAddress(identifier, address);
     rt.effectiveTypeTable.add(address, typeInfo);
-
     if (initializer) evaluateInitializer(initializer, address, typeInfo, rt);
   },
   InitializerList: () => {
@@ -155,6 +161,8 @@ export const ASTNodeEvaluator: {
     rt: Runtime,
     { value: stmts }: TypedCompoundStatement,
   ) => {
+    rt.symbolTable.enterBlock();
+    rt.agenda.push(exitBlockInstruction());
     for (let i = stmts.length - 1; i >= 0; i--) {
       rt.agenda.push(stmts[i]);
     }
@@ -712,6 +720,7 @@ export const instructionEvaluator: {
           rt.config.endianness,
         );
         rt.memory.setScalar(address, n, typeInfo, rt.config.endianness);
+        rt.initTable.add(address, typeInfo);
         rt.stash.pushWithoutConversions(
           new TemporaryObject(
             typeInfo,
@@ -722,7 +731,9 @@ export const instructionEvaluator: {
       }
       if (isStructure(typeInfo) && isStructure(o.typeInfo)) {
         rt.memory.setObjectBytes(address, o.bytes, typeInfo);
+        rt.initTable.add(address, typeInfo);
         rt.stash.pushWithoutConversions(o);
+        return;
       }
     }
 
@@ -731,7 +742,7 @@ export const instructionEvaluator: {
   [InstructionType.MARK]: (rt: Runtime) => {
     const idx = rt.functionCalls.peek();
     if (rt.getFunctions()[idx][0] !== "main") {
-      throw new Error("mark encountered without return");
+      throw new Error("mark encountered without return (are you missing a return statement?)");
     }
     // main implicitly returns 0 if no return statement
     rt.stash.pushWithoutConversions(
@@ -794,8 +805,10 @@ export const instructionEvaluator: {
     const [fnBody, fnType] = rt.getFunction(Number(fnIdx));
     rt.functionCalls.push(Number(fnIdx));
     rt.agenda.push(markInstruction());
-    if (fnBody.value.length === 1) rt.agenda.push(fnBody.value[0]);
-    else rt.agenda.push(fnBody);
+    const stmts = fnBody.value
+    for (let i = stmts.length - 1; i >= 0; i--) {
+      rt.agenda.push(stmts[i]);
+    }
 
     const frame = RuntimeStack.calculateStackFrame(
       fnType.parameterTypes,
@@ -833,7 +846,11 @@ export const instructionEvaluator: {
     while (!isMarkInstruction(rt.agenda.peek())) rt.agenda.pop();
     rt.agenda.pop();
     const block = rt.symbolTable.exitBlock();
-    Object.values(block).forEach((addr) => rt.effectiveTypeTable.remove(addr));
+    Object.values(block).forEach((addr) => {
+      const t = rt.effectiveTypeTable.get(addr)
+      if (t !== NO_EFFECTIVE_TYPE) rt.initTable.remove(addr, t.size)
+      rt.effectiveTypeTable.remove(addr)
+    });
     rt.stack.pop();
     rt.functionCalls.pop();
   },
@@ -960,6 +977,14 @@ export const instructionEvaluator: {
       );
     }
   },
+  [InstructionType.EXIT_BLOCK]: (rt:Runtime) => {
+    const block = rt.symbolTable.exitBlock();
+    Object.values(block).forEach((addr) => {
+      const t = rt.effectiveTypeTable.get(addr)
+      if (t !== NO_EFFECTIVE_TYPE) rt.initTable.remove(addr, t.size)
+      rt.effectiveTypeTable.remove(addr)
+    });
+  }
 };
 
 const convertValue = (
