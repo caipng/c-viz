@@ -36,6 +36,7 @@ export class RuntimeView {
   stash: StashItem[];
   textAndData: TextAndData;
   stack: StackFrame[];
+  stackMemUsage: number;
   blockScopes: Record<Identifier, number>[];
   fileScope: Record<Identifier, number>;
   memory: Memory;
@@ -43,6 +44,7 @@ export class RuntimeView {
   functionCalls: number[];
   rbpArr: number[];
   heap: Record<number, HeapEntry>;
+  heapMemUsage: number;
   effectiveTypeTable: Record<number, EffectiveTypeTableEntry>;
   initTable: InitializedTable;
 
@@ -52,6 +54,7 @@ export class RuntimeView {
     this.stash = rt.stash.getArr();
     this.textAndData = cloneDeep(rt.textAndData);
     this.stack = rt.stack.getArr();
+    this.stackMemUsage = rt.stack.memUsage;
     this.blockScopes = rt.symbolTable.getBlockScopes();
     this.fileScope = rt.symbolTable.getFileScope();
     this.memory = cloneDeep(rt.memory);
@@ -60,8 +63,9 @@ export class RuntimeView {
     this.rbpArr = rt.stack.getRbpArr();
     this.rbpArr.push(rt.stack.rbp);
     this.heap = rt.heap.getAllocations();
+    this.heapMemUsage = rt.heap.memUsage;
     this.effectiveTypeTable = rt.effectiveTypeTable.getTable();
-    this.initTable = cloneDeep(rt.initTable)
+    this.initTable = cloneDeep(rt.initTable);
   }
 }
 
@@ -98,7 +102,7 @@ export class Runtime {
       config.memory.heap.baseAddress,
       config.memory.heap.baseAddress + config.memory.heap.size,
     );
-    this.initTable = new InitializedTable()
+    this.initTable = new InitializedTable();
 
     this.functions = [];
     this.builtinFunctions = [];
@@ -109,7 +113,7 @@ export class Runtime {
     for (const [identifier, f] of Object.entries(BUILTIN_FUNCTIONS)) {
       const address = this.allocateText(shortInt());
       const idx = this.addBuiltinFunction(f);
-      this.effectiveTypeTable.add(address, shortInt())
+      this.effectiveTypeTable.add(address, shortInt());
       this.memory.setScalar(
         address,
         BigInt(-idx - 1),

@@ -7,6 +7,7 @@ export type HeapEntry = { size: number };
 export class Heap {
   private readonly allocations: Record<number, HeapEntry>;
 
+  private _memUsage: number;
   private heapStart: number;
   private heapEnd: number;
 
@@ -14,6 +15,7 @@ export class Heap {
     this.allocations = {};
     this.heapStart = heapStart;
     this.heapEnd = heapEnd;
+    this._memUsage = 0;
   }
 
   public allocate(size: number): number {
@@ -33,6 +35,7 @@ export class Heap {
     if (!ok) return 0;
     curr = roundUpM(curr, MAX_ALIGN);
     this.allocations[curr] = { size };
+    this._memUsage += size;
     return curr;
   }
 
@@ -41,7 +44,12 @@ export class Heap {
       throw new Error(
         "undefined behaviour: free on address not returned by malloc",
       );
+    this._memUsage -= this.allocations[addr].size;
     delete this.allocations[addr];
+  }
+
+  public get memUsage() {
+    return this._memUsage;
   }
 
   public getBlockSize(addr: number): number {

@@ -21,6 +21,7 @@ export class RuntimeStack extends Stack<StackFrame> {
   private _rsp: number;
   private _rbpStack: Stack<number>;
   private _rspStack: Stack<number>;
+  private _memUsage: number;
 
   constructor(stackBaseAddress: number) {
     super();
@@ -28,6 +29,7 @@ export class RuntimeStack extends Stack<StackFrame> {
     this._rsp = stackBaseAddress;
     this._rbpStack = new Stack();
     this._rspStack = new Stack();
+    this._memUsage = 0;
   }
 
   getRbpArr(): number[] {
@@ -42,12 +44,16 @@ export class RuntimeStack extends Stack<StackFrame> {
     const [size, alignment] = RuntimeStack.getStackFrameSizeAndAlignment(x);
     this._rbp = roundUpM(this._rsp + 1, alignment);
     this._rsp = this._rbp + size - 1;
+    this._memUsage += size;
   }
 
   override pop(): StackFrame {
     this._rsp = this._rspStack.pop();
     this._rbp = this._rbpStack.pop();
-    return super.pop();
+    const sf = super.pop();
+    const size = RuntimeStack.getStackFrameSizeAndAlignment(sf)[0];
+    this._memUsage -= size;
+    return sf;
   }
 
   get rbp(): number {
@@ -56,6 +62,10 @@ export class RuntimeStack extends Stack<StackFrame> {
 
   get rsp(): number {
     return this._rsp;
+  }
+
+  get memUsage(): number {
+    return this._memUsage;
   }
 
   static calculateStackFrame(
@@ -86,7 +96,7 @@ export class RuntimeStack extends Stack<StackFrame> {
               identifierPrefix.join("::") +
               (identifierPrefix.length ? "::" : "") +
               j.identifier;
-            j.qualifiedIdentifier = qid; 
+            j.qualifiedIdentifier = qid;
             ptr = roundUpM(ptr, typeInfo.alignment);
             res[qid] = { address: ptr, typeInfo };
             ptr += typeInfo.size;
