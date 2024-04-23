@@ -142,14 +142,19 @@ const unorderedCompare = (s1: string, s2: string): boolean =>
 export const getTypeInfoFromSpecifiers = (
   ls: TypeSpecifier[],
   env: TypeEnv | null = null,
+  allowEmptyStructSpecifier: boolean = false,
 ): TypeInfo => {
   if (ls.length === 0) throw "at least one type specifier must be given";
 
   const n = ls.reduce((A, i) => (isStructSpecifier(i) ? A + 1 : A), 0);
-  if (n > 1) throw "more than 1 struct specifier";
+  if (n > 1) throw "more than 1 struct specifier in specifier list";
   if (n === 1) {
     if (ls.length !== 1) throw "struct specifier should be the only specifier";
-    return constructStructFromSpecifier(ls[0] as StructSpecifier, env);
+    return constructStructFromSpecifier(
+      ls[0] as StructSpecifier,
+      env,
+      allowEmptyStructSpecifier,
+    );
   }
 
   const s = ls.join(" ");
@@ -162,12 +167,15 @@ export const getTypeInfoFromSpecifiers = (
   if (!env) throw "unknown type specifiers";
   if (ls.length > 1)
     throw "more than 1 typedef specified or unknown type specifiers";
+  // pre typecheck, don't care about typedefs
+  if (allowEmptyStructSpecifier) return int();
   return env.getIdentifierTypeInfo(ls[0] as string, true);
 };
 
-const constructStructFromSpecifier = (
+export const constructStructFromSpecifier = (
   s: StructSpecifier,
   env: TypeEnv | null,
+  allowEmptyStructSpecifier: boolean,
 ): Structure => {
   const tag = s.identifier || undefined;
   const members = [];
@@ -184,6 +192,7 @@ const constructStructFromSpecifier = (
         typeSpecifiers,
         id.declarator,
         env,
+        allowEmptyStructSpecifier,
       );
       if (!isObjectTypeInfo(type)) throw "non object type declared in struct";
       if (name) members.push({ name, type });
@@ -200,16 +209,33 @@ const constructStructFromSpecifier = (
       other = undefined;
     }
     if (s.declarationList.length === 0) {
-      if (!other) throw "empty struct specifier";
+      if (!other) {
+        if (allowEmptyStructSpecifier) return res;
+        throw "empty struct specifier";
+      }
       return other;
     }
     if (other) {
-      if (!res.isCompatible(other)) throw "redefinition of struct " + tag;
+      if (!res.isCompatible(other)) {
+        if (allowEmptyStructSpecifier) {
+          // first scan
+          throw "redefinition of struct " + tag;
+        } else {
+          // second scan: other must be forward declaration
+          for (let i = 0; i < members.length; i++) {
+            other.members[i] = res.members[i];
+          }
+          return other;
+        }
+      }
     } else {
       env?.addTagTypeInfo(tag, res);
     }
   } else {
-    if (s.declarationList.length === 0) throw "empty struct specifier";
+    if (s.declarationList.length === 0) {
+      if (allowEmptyStructSpecifier) return res;
+      throw "empty struct specifier";
+    }
   }
   return res;
 };

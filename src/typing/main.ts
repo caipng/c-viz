@@ -149,24 +149,18 @@ import {
   isLvalue,
   isModifiableLvalue,
   isNullPtrConst,
+  fillInForwardDeclarations,
 } from "./utils";
 import { getErrorMessage } from "../utils";
 import { TypeCheckingError } from "./errors";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function typeCheck<T>(t: BaseNode, f: () => T) {
+function typeCheck<T>(t: BaseNode, f: () => T): T {
   try {
     return f();
   } catch (err) {
+    console.error(err);
     if (err instanceof TypeCheckingError) throw err;
-    throw new TypeCheckingError(
-      "line " +
-        t.start.line +
-        " col " +
-        t.start.column +
-        ": " +
-        getErrorMessage(err),
-    );
+    throw new TypeCheckingError(t, getErrorMessage(err));
   }
 }
 
@@ -177,9 +171,18 @@ export const typeTranslationUnit = (t: TranslationUnit): TypedTranslationUnit =>
       value: [],
     };
     const env = new TypeEnv();
+
+    // pre typechecking
+    fillInForwardDeclarations(t, env);
+
+    // typechecking
     for (const i of t.value) {
       res.value.push(typeExternalDeclaration(i, env));
     }
+
+    // post typechecking
+    env.aggTypes.forEach((i) => i.recalculateSizeAndAlignment());
+
     try {
       env.getIdentifierTypeInfo("main");
     } catch (err) {
@@ -377,8 +380,6 @@ const typeInitializerList = (
   typeCheck(t, () => {
     let i = 0;
     const value = t.value.map(({ designation, initializer }) => {
-      if (i >= (isArray(tt) ? tt.length : tt.members.length))
-        throw "excess initializers in initializer list";
       let curr: ObjectTypeInfo = tt;
       const typedDesignators: TypedDesignator[] = [];
 
@@ -407,6 +408,8 @@ const typeInitializerList = (
           first = false;
         }
       } else {
+        if (i >= (isArray(tt) ? tt.length : tt.members.length))
+          throw "excess initializers in initializer list";
         curr = isArray(tt) ? tt.elementType : tt.members[i].type;
       }
 

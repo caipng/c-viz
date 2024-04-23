@@ -151,11 +151,17 @@ export const isSigned = (t: ScalarType): boolean =>
 
 export type AggregateType = Array | Structure;
 
+export const isAggregateType = (t: TypeInfo): t is AggregateType =>
+  isArray(t) || isStructure(t);
+
 export type DerviedDeclaratorType = Array | FunctionType | Pointer;
+
+// maximum recursion depth for isCompatible checks to deal with cyclic types
+export const COMPATIBLE_CHECK_MAX_DEPTH = 32;
 
 export interface BaseTypeInfo {
   type: Type;
-  isCompatible: (other: TypeInfo) => boolean;
+  isCompatible: (other: TypeInfo, depth?: number) => boolean;
 }
 
 export type TypeInfo = ObjectTypeInfo | IncompleteTypeInfo | FunctionTypeInfo;
@@ -385,6 +391,7 @@ export interface Array extends ObjectTypeInfo {
   type: Type.Array;
   elementType: ObjectTypeInfo;
   length: number;
+  recalculateSizeAndAlignment: (depth?: number) => void;
 }
 
 export const array = (elementType: ObjectTypeInfo, length: number): Array => ({
@@ -393,12 +400,19 @@ export const array = (elementType: ObjectTypeInfo, length: number): Array => ({
   alignment: elementType.alignment,
   elementType,
   length,
-  isCompatible: (other: TypeInfo) => {
+  isCompatible(other: TypeInfo, depth: number = 0) {
+    if (depth > COMPATIBLE_CHECK_MAX_DEPTH) return true;
     return (
       isArray(other) &&
-      length === other.length &&
-      elementType.isCompatible(other.elementType)
+      this.length === other.length &&
+      this.elementType.isCompatible(other.elementType, depth + 1)
     );
+  },
+  recalculateSizeAndAlignment(depth: number = 0) {
+    if (!isAggregateType(this.elementType)) return;
+    this.elementType.recalculateSizeAndAlignment(depth + 1);
+    this.size = this.elementType.size * length;
+    this.alignment = this.elementType.alignment;
   },
 });
 
@@ -414,6 +428,7 @@ export interface Structure extends ObjectTypeInfo {
   type: Type.Structure;
   tag?: string;
   members: StructureMember[];
+  recalculateSizeAndAlignment: (depth?: number) => void;
 }
 
 export const structure = (
@@ -424,7 +439,7 @@ export const structure = (
   tag?: string,
 ): Structure => {
   // the alignment of a structure must be at least as strict as the alignment of its strictest member
-  const strictestAlignment = Math.max(...m.map((i) => i.type.alignment));
+  const strictestAlignment = Math.max(1, ...m.map((i) => i.type.alignment));
   const members: StructureMember[] = [];
 
   let currAddr = 0; // next free addr
@@ -438,19 +453,46 @@ export const structure = (
 
   const res: Structure = {
     type: Type.Structure,
-    size: currAddr,
+    size: Math.max(1, currAddr),
     alignment: strictestAlignment,
     members,
-    isCompatible: (other: TypeInfo) => {
+    // TODO: memoize this, currently exponential in number of nested structs
+    recalculateSizeAndAlignment(depth: number = 0) {
+      if (depth > COMPATIBLE_CHECK_MAX_DEPTH)
+        throw new Error(
+          "struct " +
+            this.tag +
+            " cannot contain itself (do you mean to use a pointer instead?)",
+        );
+      this.members.forEach((i) => {
+        if (isAggregateType(i.type))
+          i.type.recalculateSizeAndAlignment(depth + 1);
+      });
+      const strictestAlignment = Math.max(
+        1,
+        ...this.members.map((i) => i.type.alignment),
+      );
+      let currAddr = 0;
+      for (const i of this.members) {
+        currAddr = roundUpM(currAddr, i.type.alignment);
+        currAddr += i.type.size;
+      }
+      currAddr = roundUpM(currAddr, strictestAlignment);
+
+      this.size = Math.max(1, currAddr);
+      this.alignment = strictestAlignment;
+    },
+    isCompatible(other: TypeInfo, depth: number = 0) {
+      if (depth > COMPATIBLE_CHECK_MAX_DEPTH) return true;
       return (
         isStructure(other) &&
-        other.tag === tag &&
-        other.members.length === members.length &&
+        other.tag === this.tag &&
+        other.members.length === this.members.length &&
         other.members.reduce(
           (A, m, i) =>
             A &&
-            m.name === members[i].name &&
-            m.type.isCompatible(members[i].type),
+            m.name === this.members[i].name &&
+            m.type.isCompatible(this.members[i].type, depth + 1),
           true,
         )
       );
@@ -476,9 +518,11 @@ export const pointer = (referencedType: TypeInfo): Pointer => ({
   size: INT_SIZE,
   alignment: INT_ALIGN,
   referencedType,
-  isCompatible: (other: TypeInfo) => {
+  isCompatible(other: TypeInfo, depth: number = 0) {
+    if (depth > COMPATIBLE_CHECK_MAX_DEPTH) return true;
     return (
-      isPointer(other) && other.referencedType.isCompatible(referencedType)
+      isPointer(other) &&
+      other.referencedType.isCompatible(this.referencedType, depth + 1)
     );
   },
 });
@@ -574,13 +618,15 @@ export const functionType = (
 
   return {
     ...res,
-    isCompatible: (other: TypeInfo): boolean => {
+    isCompatible(other: TypeInfo, depth: number = 0) {
+      if (depth > COMPATIBLE_CHECK_MAX_DEPTH) return true;
       return (
         isFunction(other) &&
-        other.returnType.isCompatible(returnType) &&
-        other.arity === res.arity &&
+        other.returnType.isCompatible(this.returnType, depth + 1) &&
+        other.arity === this.arity &&
         other.parameterTypes.reduce(
-          (A, p, i) => A && p.type.isCompatible(res.parameterTypes[i].type),
+          (A, p, i) =>
+            A && p.type.isCompatible(this.parameterTypes[i].type, depth + 1),
           true,
         )
       );

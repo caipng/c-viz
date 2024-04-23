@@ -1,7 +1,9 @@
 import {
   ExpressionTypeInfo,
+  TranslationUnit,
   TypeSpecifier,
   isStorageClassSpecifier,
+  isStructSpecifier,
   isTypeSpecifier,
   isTypedIntegerConstant,
 } from "./../ast/types";
@@ -14,7 +16,10 @@ import {
   isIdentifierDeclaratorPart,
   isTypedPrimaryExprConstant,
 } from "../ast/types";
-import { getTypeInfoFromSpecifiers } from "./specifiers";
+import {
+  constructStructFromSpecifier,
+  getTypeInfoFromSpecifiers,
+} from "./specifiers";
 import {
   ObjectTypeInfo,
   Structure,
@@ -33,6 +38,8 @@ import {
   pointer,
 } from "./types";
 import { TypeEnv } from "./env";
+import { TypeCheckingError } from "./errors";
+import { getErrorMessage } from "../utils";
 
 export const getIdentifierFromDeclarator = (
   d: Declarator,
@@ -56,6 +63,7 @@ export const constructDerivedTypes = (
   ls: DeclaratorWithoutIdentifier,
   baseType: TypeInfo,
   env: TypeEnv | null,
+  allowEmptyStructSpecifier: boolean = false,
 ): TypeInfo => {
   const p = ls.pop();
   if (!p) return baseType;
@@ -84,7 +92,12 @@ export const constructDerivedTypes = (
         if (storageClassSpecifiers.length > 0)
           throw "typedef in parameter declaration";
         const typeSpecifiers = i.specifiers.filter(isTypeSpecifier);
-        return constructType(typeSpecifiers, i.declarator, env);
+        return constructType(
+          typeSpecifiers,
+          i.declarator,
+          env,
+          allowEmptyStructSpecifier,
+        );
       });
       t = functionType(baseType, paramTypeInfo);
       break;
@@ -95,15 +108,20 @@ export const constructDerivedTypes = (
     }
   }
 
-  return constructDerivedTypes(ls, t, env);
+  return constructDerivedTypes(ls, t, env, allowEmptyStructSpecifier);
 };
 
 export const constructType = (
   specifiers: TypeSpecifier[],
   declarator: Declarator,
   env: TypeEnv | null,
+  allowEmptyStructSpecifier: boolean = false,
 ): { identifier: Identifier | null; type: TypeInfo } => {
-  const specifiedType = getTypeInfoFromSpecifiers(specifiers, env);
+  const specifiedType = getTypeInfoFromSpecifiers(
+    specifiers,
+    env,
+    allowEmptyStructSpecifier,
+  );
   const identifier = getIdentifierFromDeclarator(declarator);
   const type = constructDerivedTypes(
     declarator.filter(
@@ -111,6 +129,7 @@ export const constructType = (
     ) as DeclaratorWithoutIdentifier,
     specifiedType,
     env,
+    allowEmptyStructSpecifier,
   );
   return { identifier, type };
 };
@@ -206,5 +225,21 @@ export const getMember = (
     identifier +
     " does not exist on struct" +
     (t.tag ? " " + t.tag : "")
+  );
+};
+
+export const fillInForwardDeclarations = (
+  t: TranslationUnit,
+  env: TypeEnv,
+): void => {
+  t.value.map((i) =>
+    i.specifiers.map((j) => {
+      if (!(isTypeSpecifier(j) && isStructSpecifier(j))) return;
+      try {
+        constructStructFromSpecifier(j, env, true);
+      } catch (err) {
+        throw new TypeCheckingError(i, getErrorMessage(err));
+      }
+    }),
   );
 };
