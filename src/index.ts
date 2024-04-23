@@ -14,11 +14,7 @@ export default {
     return res.ast as TranslationUnit;
   },
   typeCheck(t: TranslationUnit): TypedTranslationUnit {
-    try {
-      return typeTranslationUnit(t);
-    } catch (err) {
-      throw new Error("" + err);
-    }
+    return typeTranslationUnit(t);
   },
   run(source: string, config: Partial<RuntimeConfig> = {}): Runtime {
     const program = this.parseProgram(source);

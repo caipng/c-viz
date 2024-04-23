@@ -136,7 +136,12 @@ export const ASTNodeEvaluator: {
   TypedefDeclaration: () => {},
   InitDeclarator: (
     rt: Runtime,
-    { identifier, typeInfo, initializer, qualifiedIdentifier }: TypedInitDeclarator,
+    {
+      identifier,
+      typeInfo,
+      initializer,
+      qualifiedIdentifier,
+    }: TypedInitDeclarator,
   ) => {
     let address: number;
     if (rt.symbolTable.inFileScope) {
@@ -145,7 +150,8 @@ export const ASTNodeEvaluator: {
       o.initialized = true;
       rt.textAndData.push(o);
     } else {
-      if (!qualifiedIdentifier) throw new Error("missing call to calculateStackFrame");
+      if (!qualifiedIdentifier)
+        throw new Error("missing call to calculateStackFrame");
       const frame = rt.stack.peek();
       address = rt.stack.rbp + frame[qualifiedIdentifier].address;
     }
@@ -742,7 +748,9 @@ export const instructionEvaluator: {
   [InstructionType.MARK]: (rt: Runtime) => {
     const idx = rt.functionCalls.peek();
     if (rt.getFunctions()[idx][0] !== "main") {
-      throw new Error("mark encountered without return (are you missing a return statement?)");
+      throw new Error(
+        "mark encountered without return (are you missing a return statement?)",
+      );
     }
     // main implicitly returns 0 if no return statement
     rt.stash.pushWithoutConversions(
@@ -805,7 +813,7 @@ export const instructionEvaluator: {
     const [fnBody, fnType] = rt.getFunction(Number(fnIdx));
     rt.functionCalls.push(Number(fnIdx));
     rt.agenda.push(markInstruction());
-    const stmts = fnBody.value
+    const stmts = fnBody.value;
     for (let i = stmts.length - 1; i >= 0; i--) {
       rt.agenda.push(stmts[i]);
     }
@@ -847,9 +855,9 @@ export const instructionEvaluator: {
     rt.agenda.pop();
     const block = rt.symbolTable.exitBlock();
     Object.values(block).forEach((addr) => {
-      const t = rt.effectiveTypeTable.get(addr)
-      if (t !== NO_EFFECTIVE_TYPE) rt.initTable.remove(addr, t.size)
-      rt.effectiveTypeTable.remove(addr)
+      const t = rt.effectiveTypeTable.get(addr);
+      if (t !== NO_EFFECTIVE_TYPE) rt.initTable.remove(addr, t.size);
+      rt.effectiveTypeTable.remove(addr);
     });
     rt.stack.pop();
     rt.functionCalls.pop();
@@ -977,14 +985,14 @@ export const instructionEvaluator: {
       );
     }
   },
-  [InstructionType.EXIT_BLOCK]: (rt:Runtime) => {
+  [InstructionType.EXIT_BLOCK]: (rt: Runtime) => {
     const block = rt.symbolTable.exitBlock();
     Object.values(block).forEach((addr) => {
-      const t = rt.effectiveTypeTable.get(addr)
-      if (t !== NO_EFFECTIVE_TYPE) rt.initTable.remove(addr, t.size)
-      rt.effectiveTypeTable.remove(addr)
+      const t = rt.effectiveTypeTable.get(addr);
+      if (t !== NO_EFFECTIVE_TYPE) rt.initTable.remove(addr, t.size);
+      rt.effectiveTypeTable.remove(addr);
     });
-  }
+  },
 };
 
 const convertValue = (
@@ -1034,11 +1042,14 @@ const evaluateInitializer = (
     throw new Error("invalid initialization");
 
   let i = 0;
-  t.value.forEach(({ designation, initializer }) => {
-    let currType: ObjectTypeInfo = tt;
-    let currAddress = isArray(tt)
+  let currAddress = address;
+  const updateCurrAddr = () => {
+    currAddress = isArray(tt)
       ? address + i * tt.elementType.size
       : address + tt.members[i].relativeAddress;
+  };
+  t.value.forEach(({ designation, initializer }) => {
+    let currType: ObjectTypeInfo = tt;
 
     if (designation.length) {
       let first = true;
@@ -1047,8 +1058,12 @@ const evaluateInitializer = (
           if (!isArray(currType))
             throw "array designator when current object is not array";
           const idxVal = Number(d.idx.value);
-          if (first) i = idxVal;
-          currAddress += i * currType.elementType.size;
+          if (first) {
+            i = idxVal;
+            updateCurrAddr();
+          } else {
+            currAddress += i * currType.elementType.size;
+          }
           currType = currType.elementType;
         } else {
           if (!isStructure(currType))
@@ -1057,13 +1072,18 @@ const evaluateInitializer = (
             currType,
             d.identifier,
           );
-          if (first) i = idx;
-          currAddress += relativeAddress;
+          if (first) {
+            i = idx;
+            updateCurrAddr();
+          } else {
+            currAddress += relativeAddress;
+          }
           currType = typeInfo;
         }
         first = false;
       }
     } else {
+      updateCurrAddr();
       currType = isArray(tt) ? tt.elementType : tt.members[i].type;
     }
 
