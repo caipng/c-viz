@@ -35,6 +35,29 @@
   function throwNotImplemented(details = "") {
     error("not implemented" + (details ? ": " + details : ""));
   }
+
+  const typedefNames = [[]];
+
+  function enterBlock() {
+    typedefNames.push([]);
+  }
+
+  function exitBlock() {
+    typedefNames.pop();
+  }
+
+  function addTypedefName(name) {
+    typedefNames[typedefNames.length - 1].push(name);
+  }
+
+  function isTypedefName(name) {
+    for (let i = typedefNames.length - 1; i >= 0; i--) {
+      for (const j of typedefNames[i]) {
+        if (name === j) return true;
+      }
+    }
+    return false;
+  }
 }
 
 start
@@ -658,12 +681,12 @@ UnaryExpression
         expr: b
       });
     }
-  / SIZEOF a:UnaryExpression
-    { 
-      return makeNode("UnaryExpressionSizeof", { value: a });
-    }
   / SIZEOF LPAR a:TypeName RPAR
     {
+      return makeNode("UnaryExpressionSizeof", { value: a });
+    }
+  / SIZEOF a:UnaryExpression
+    { 
       return makeNode("UnaryExpressionSizeof", { value: a });
     }
   / ALIGNOF LPAR a:TypeName RPAR
@@ -694,7 +717,10 @@ CastExpression
 
 // (6.5.5) multiplicative-expression
 MultiplicativeExpression
-  = a:CastExpression b:((STAR / DIV / MOD) CastExpression)*
+  = a:CastExpression
+    // parsing of ambiguous "A * B"
+    &{ return !(a.type === "PrimaryExprIdentifier" && isTypedefName(a.value)); }
+    b:((STAR / DIV / MOD) CastExpression)*
     { return makeBinaryExpNode(a, b); }
 
 // (6.5.6) additive-expression
@@ -819,6 +845,11 @@ ConstantExpression
 Declaration
   = a:DeclarationSpecifiers b:InitDeclaratorList? SEMI
     {
+      if (a.includes("typedef")) {
+        b.forEach(i => i.declarator.forEach(j => {
+          if (j.partType === "identifier") addTypedefName(j.name);
+        }))
+      }
       return makeNode("Declaration", {
         specifiers: a,
         declaratorList: b || []
@@ -956,9 +987,10 @@ StructDeclaration
 // (6.7.2.1) specifier-qualifier-list
 // Note the change from the standard to handle the TypedefName case
 SpecifierQualifierList
-  = (TypeQualifier / AlignmentSpecifier)*
-    TypedefName
-    (TypeQualifier / AlignmentSpecifier)*
+  = a:(TypeQualifier / AlignmentSpecifier)*
+    b:TypedefName
+    c:(TypeQualifier / AlignmentSpecifier)*
+    { return a.concat([b]).concat(c); }
   / (
         TypeSpecifier
       / TypeQualifier
@@ -1235,8 +1267,11 @@ LabeledStatement
 
 // (6.8.2) compound-statement
 CompoundStatement
-  = LCUR a:BlockItemList? RCUR
-    { return makeNode("CompoundStatement", a || []); }
+  = LCUR &{ enterBlock(); return true; } a:BlockItemList? RCUR
+    { 
+      exitBlock();
+      return makeNode("CompoundStatement", a || []);
+    }
 
 // (6.8.2) block-item-list
 BlockItemList
