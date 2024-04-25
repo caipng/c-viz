@@ -1,6 +1,6 @@
 {
   "name": "c-viz",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "",
   "nyc": {
     "extension": [
@@ -18,7 +18,11 @@
     ],
     "all": true
   },
-  "main": "src/commonjs.cjs",
+  "main": "lib/index",
+  "types": "lib/index",
+  "files": [
+    "lib"
+  ],
   "scripts": {
     "build": "grunt build",
     "format": "npx prettier . --write",
@@ -35,6 +39,7 @@
   },
   "homepage": "https://github.com/caipng/c-viz#readme",
   "dependencies": {
+    "lodash": "^4.17.21",
     "pegjs-util": "^1.4.21"
   },
   "devDependencies": {
@@ -43,13 +48,14 @@
     "@babel/preset-env": "^7.22.15",
     "@types/chai": "^4.3.6",
     "@types/js-yaml": "^4.0.5",
+    "@types/lodash": "^4.14.199",
     "@types/mocha": "^10.0.1",
     "@types/node": "^20.6.0",
     "@types/pegjs": "^0.10.3",
-    "@typescript-eslint/eslint-plugin": "^6.6.0",
-    "@typescript-eslint/parser": "^6.6.0",
+    "@typescript-eslint/eslint-plugin": "^6.18.1",
+    "@typescript-eslint/parser": "^6.18.1",
     "chai": "^4.3.8",
-    "eslint": "^8.49.0",
+    "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.0.0",
     "grunt": "^1.6.1",
     "grunt-babel": "^8.0.0",
@@ -72,6 +78,6 @@
     "source-map-support": "^0.5.21",
     "ts-node": "^10.9.1",
     "tslib": "^2.6.2",
-    "typescript": "^5.2.2"
+    "typescript": "^5.3.3"
   }
 }

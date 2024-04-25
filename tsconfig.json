@@ -3,12 +3,32 @@
     "module": "commonjs",
     "target": "es6",
     "outDir": "lib",
-    "lib": ["es6"],
+    "lib": ["es6", "dom"],
     "sourceMap": true,
     "rootDir": "src",
     "allowJs": true,
-    "noImplicitAny": true
+    "noImplicitAny": true,
+    "declaration": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "strict": true
   },
-  "exclude": ["node_modules", "lib", "dist", ".eslintrc.cjs", "Gruntfile.js"],
-  "include": ["src"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": [
+    "src/**/*.js",
+    "src/**/*.jsx",
+    "node_modules",
+    "node_modules/*",
+    "node_modules/@types/node/ts4.8/test.d.ts",
+    "lib",
+    "dist",
+    ".eslintrc.cjs",
+    "Gruntfile.js",
+    "src/cparser.js"
+  ]
 }
