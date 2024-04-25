@@ -1,8 +1,18 @@
-import { FunctionType } from "./../typing/types";
+import {
+  FunctionType,
+  isArray,
+  isChar,
+  isPointer,
+  isScalarType,
+  isSigned,
+  isStructure,
+} from "./../typing/types";
 import { Identifier } from "./../ast/types";
 import { ObjectTypeInfo } from "../typing/types";
-import { checkValidByte } from "../utils";
+import { checkValidByte, decimalAddressToHex } from "../utils";
 import { Memory } from "../memory/memory";
+import { Endianness } from "../config";
+import { bytesToBigint } from "../typing/representation";
 
 interface Identifiable {
   identifier: Identifier;
@@ -113,3 +123,38 @@ export class RuntimeObject
     this._identifier = i;
   }
 }
+
+export const stringify = (
+  bytes: number[],
+  t: ObjectTypeInfo,
+  endianness: Endianness,
+): string => {
+  if (bytes.length !== t.size)
+    throw new Error("number of bytes do not match type given");
+  if (isScalarType(t)) {
+    const n = bytesToBigint(bytes, isSigned(t), endianness);
+    if (isChar(t)) return "'" + encodeURI(String.fromCharCode(Number(n))) + "'";
+    if (isPointer(t)) {
+      if (n === BigInt(0)) return "NULL";
+      return decimalAddressToHex(Number(n));
+    }
+    return n.toString();
+  }
+  if (isArray(t)) {
+    const et = t.elementType;
+    const res = [];
+    for (let i = 0; i < t.size; i += et.size) {
+      res.push(stringify(bytes.slice(i, i + et.size), et, endianness));
+    }
+    return "[" + res.join(", ") + "]";
+  }
+  if (isStructure(t)) {
+    const res = [];
+    for (const i of t.members) {
+      const b = bytes.slice(i.relativeAddress, i.relativeAddress + i.type.size);
+      res.push(stringify(b, i.type, endianness));
+    }
+    return (t.tag || "") + "{" + res.join(", ") + "}";
+  }
+  return "?";
+};

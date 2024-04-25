@@ -157,6 +157,7 @@ import {
   Array,
   Structure,
   unsignedInt,
+  Type,
 } from "./types";
 import {
   checkSimpleAssignmentConstraint,
@@ -1136,6 +1137,11 @@ const typePostfixExpressionNode = (
         if (value.length !== ft.arity)
           throw "function call has wrong number of arguments";
         ft.parameterTypes.forEach((p, i) => {
+          if (p.type.type === Type._Any) {
+            if (!isObjectTypeInfo(value[i].typeInfo))
+              throw "expected parameter to have object type";
+            return;
+          }
           if (
             !checkSimpleAssignmentConstraint(
               p.type,

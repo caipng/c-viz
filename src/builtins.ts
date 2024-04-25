@@ -1,12 +1,13 @@
 import { Identifier } from "./ast/types";
 import { NO_EFFECTIVE_TYPE } from "./interpreter/effectiveTypeTable";
-import { TemporaryObject } from "./interpreter/object";
+import { TemporaryObject, stringify } from "./interpreter/object";
 import { Runtime } from "./interpreter/runtime";
 import { StashItem, isTemporaryObject } from "./interpreter/stash";
 import { BIGINT_TO_BYTES, bytesToBigint } from "./typing/representation";
 import {
   FunctionType,
   Type,
+  _any,
   functionType,
   int,
   isArithmeticType,
@@ -71,6 +72,17 @@ export const BUILTIN_FUNCTIONS: Record<Identifier, BuiltinFunction> = {
       const blockSize = rt.heap.getBlockSize(n);
       rt.heap.free(n);
       rt.effectiveTypeTable.remove(n, blockSize);
+    },
+  },
+  print: {
+    type: functionType(voidType(), [{ identifier: "obj", type: _any() }]),
+    body: (rt: Runtime, args: StashItem[]) => {
+      if (args.length !== 1) throw "expected 1 arg for print";
+      const o = args[0];
+      if (!isTemporaryObject(o)) throw "expected object for print";
+      rt.appendToStdout(
+        stringify(o.bytes, o.typeInfo, rt.config.endianness) + "\n",
+      );
     },
   },
 };
