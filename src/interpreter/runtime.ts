@@ -95,7 +95,11 @@ export class Runtime {
     this.symbolTable = new SymbolTable();
     this.config = config;
     this.effectiveTypeTable = new EffectiveTypeTable();
-    this.memory = new Memory(config.memory, this.effectiveTypeTable);
+    this.memory = new Memory(
+      config.memory,
+      this.effectiveTypeTable,
+      config.UB.skipStrictAliasingCheck,
+    );
     this.stack = new RuntimeStack(config.memory.stack.baseAddress);
     this.functionCalls = new Stack();
     this.heap = new Heap(

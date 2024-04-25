@@ -60,8 +60,13 @@ export class Memory {
   private readonly readonlyAddresses: Set<number>;
   private readonly executableAddresses: Set<number>;
   private readonly effectiveTypeTable: EffectiveTypeTable;
+  private readonly skipStrictAliasingCheck: boolean;
 
-  constructor(config: MemoryConfig, effectiveTypeTable: EffectiveTypeTable) {
+  constructor(
+    config: MemoryConfig,
+    effectiveTypeTable: EffectiveTypeTable,
+    skipStrictAliasingCheck: boolean = false,
+  ) {
     checkMemoryConfig(config);
     this.segments = {
       stack: new MemoryRegion(config.stack),
@@ -72,6 +77,7 @@ export class Memory {
     this.readonlyAddresses = new Set();
     this.executableAddresses = new Set();
     this.effectiveTypeTable = effectiveTypeTable;
+    this.skipStrictAliasingCheck = skipStrictAliasingCheck;
   }
 
   private getMemoryRegion(address: number): MemoryRegion {
@@ -181,6 +187,7 @@ export class Memory {
       throw new Error("no object allocated at " + decimalAddressToHex(address));
     }
 
+    if (this.skipStrictAliasingCheck) return true;
     if (et === NO_EFFECTIVE_TYPE) return true;
     if (isChar(t) || isUnsignedChar(t) || isSignedChar(t)) return true;
 
