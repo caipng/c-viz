@@ -2,10 +2,22 @@ import {
   BaseNode,
   CastExpressionNode,
   InitializerList,
+  IterationStatement,
+  IterationStatementDoWhile,
+  IterationStatementFor,
+  IterationStatementWhile,
+  SelectionStatement,
+  SelectionStatementIf,
   TypeSpecifier,
   TypedCastExpressionNode,
   TypedDesignator,
   TypedInitializerList,
+  TypedIterationStatement,
+  TypedIterationStatementDoWhile,
+  TypedIterationStatementFor,
+  TypedIterationStatementWhile,
+  TypedSelectionStatement,
+  TypedSelectionStatementIf,
   TypedUnaryExpressionDecr,
   TypedUnaryExpressionSizeof,
   Typedef,
@@ -16,6 +28,11 @@ import {
   isCastExpressionNode,
   isInitializerList,
   isIntegerConstant,
+  isIterationStatement,
+  isIterationStatementDoWhile,
+  isIterationStatementWhile,
+  isJumpStatementReturn,
+  isSelectionStatement,
   isStorageClassSpecifier,
   isTypeName,
   isTypeSpecifier,
@@ -447,6 +464,8 @@ const typeStatement = (t: Statement, env: TypeEnv): TypedStatement =>
       return res;
     }
     if (isJumpStatement(t)) return typeJumpStatement(t, env);
+    if (isIterationStatement(t)) return typeIterationStatement(t, env);
+    if (isSelectionStatement(t)) return typeSelectionStatement(t, env);
     return typeExpressionStatement(t, env);
   });
 
@@ -455,8 +474,9 @@ const typeJumpStatement = (
   env: TypeEnv,
 ): TypedJumpStatement =>
   typeCheck(t, () => {
-    // if (isJumpStatementReturn(t))
-    return typeJumpStatementReturn(t, env);
+    if (isJumpStatementReturn(t)) return typeJumpStatementReturn(t, env);
+    if (!env.inLoopBody) throw "break/continue outside of a loop body";
+    return t;
   });
 
 const typeJumpStatementReturn = (
@@ -488,6 +508,99 @@ const typeJumpStatementReturn = (
       throw "wrong return type";
 
     return { ...t, value: expr };
+  });
+
+const typeIterationStatement = (
+  t: IterationStatement,
+  env: TypeEnv,
+): TypedIterationStatement =>
+  typeCheck(t, () => {
+    if (isIterationStatementWhile(t))
+      return typeIterationStatementWhile(t, env);
+    if (isIterationStatementDoWhile(t))
+      return typeIterationStatementDoWhile(t, env);
+    return typeIterationStatementFor(t, env);
+  });
+
+const typeIterationStatementWhile = (
+  t: IterationStatementWhile,
+  env: TypeEnv,
+): TypedIterationStatementWhile =>
+  typeCheck(t, () => {
+    const cond = typeExpression(t.cond, env);
+    if (!isScalarType(cond.typeInfo))
+      throw "controlling expression of while statement should have scalar type";
+    env.enterLoopBody();
+    const body = typeStatement(t.body, env);
+    env.exitLoopBody();
+    return { ...t, cond, body };
+  });
+
+const typeIterationStatementDoWhile = (
+  t: IterationStatementDoWhile,
+  env: TypeEnv,
+): TypedIterationStatementDoWhile =>
+  typeCheck(t, () => {
+    const cond = typeExpression(t.cond, env);
+    if (!isScalarType(cond.typeInfo))
+      throw "controlling expression of do while statement should have scalar type";
+    env.enterLoopBody();
+    const body = typeStatement(t.body, env);
+    env.exitLoopBody();
+    return { ...t, cond, body };
+  });
+
+const typeIterationStatementFor = (
+  t: IterationStatementFor,
+  env: TypeEnv,
+): TypedIterationStatementFor =>
+  typeCheck(t, () => {
+    let init;
+    if (t.init === null) init = null;
+    else if (isDeclaration(t.init)) {
+      throw "declaration in for statement not supported, consider moving it outside instead";
+      // init = typeDeclaration(t.init, env);
+      // if (isTypedefDeclaration(init))
+      //   throw "typedef in declaration part of for statement";
+    } else init = typeExpression(t.init, env);
+
+    let controlExpr = null;
+    if (t.controlExpr !== null) {
+      controlExpr = typeExpression(t.controlExpr, env);
+      if (!isScalarType(controlExpr.typeInfo))
+        throw "controlling expression of for statement should have scalar type";
+    }
+
+    const afterIterExpr =
+      t.afterIterExpr === null ? null : typeExpression(t.afterIterExpr, env);
+
+    env.enterLoopBody();
+    const body = typeStatement(t.body, env);
+    env.exitLoopBody();
+
+    return { ...t, init, controlExpr, afterIterExpr, body };
+  });
+
+const typeSelectionStatement = (
+  t: SelectionStatement,
+  env: TypeEnv,
+): TypedSelectionStatement =>
+  typeCheck(t, () => {
+    return typeSelectionStatementIf(t, env);
+  });
+
+const typeSelectionStatementIf = (
+  t: SelectionStatementIf,
+  env: TypeEnv,
+): TypedSelectionStatementIf =>
+  typeCheck(t, () => {
+    const cond = typeExpression(t.cond, env);
+    if (!isScalarType(cond.typeInfo))
+      throw "controlling expression of if statement should have scalar type";
+    const consequent = typeStatement(t.consequent, env);
+    const alternative =
+      t.alternative === null ? null : typeStatement(t.alternative, env);
+    return { ...t, cond, consequent, alternative };
   });
 
 const typeExpressionStatement = (

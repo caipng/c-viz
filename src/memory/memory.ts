@@ -174,8 +174,6 @@ export class Memory {
   }
 
   private checkStrictAliasing(address: number, t: ObjectTypeInfo): boolean {
-    if (isChar(t) || isUnsignedChar(t) || isSignedChar(t)) return true;
-
     let et: EffectiveTypeTableEntry;
     try {
       et = this.effectiveTypeTable.get(address);
@@ -184,6 +182,7 @@ export class Memory {
     }
 
     if (et === NO_EFFECTIVE_TYPE) return true;
+    if (isChar(t) || isUnsignedChar(t) || isSignedChar(t)) return true;
 
     if (t.isCompatible(et)) return true;
     if (isSignedIntegerType(t) && getUnsignedVersion(t).isCompatible(et))

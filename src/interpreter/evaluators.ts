@@ -49,6 +49,11 @@ import {
   isTypedUnaryExpressionNode,
   TypedUnaryExpressionSizeof,
   isEmptyExpressionStatement,
+  TypedSelectionStatementIf,
+  TypedIterationStatementDoWhile,
+  TypedIterationStatementWhile,
+  TypedIterationStatementFor,
+  TYPED_CONSTANT_ONE,
 } from "../ast/types";
 import {
   ArithmeticConversionInstruction,
@@ -57,24 +62,33 @@ import {
   BranchInstruction,
   CallInstruction,
   CastInstruction,
+  ForInstruction,
   Instruction,
   InstructionType,
   PushInstruction,
   UnaryOpInstruction,
+  WhileInstruction,
   arithmeticConversionInstruction,
   arraySubscriptInstruction,
   assignInstruction,
   binaryOpInstruction,
   branchInstruction,
+  breakMarkInstruction,
   callInstruction,
   castInstruction,
+  continueMarkInstruction,
   exitBlockInstruction,
+  forInstruction,
+  isBreakMarkInstruction,
+  isContinueMarkInstruction,
+  isExitBlockInstruction,
   isMarkInstruction,
   markInstruction,
   popInstruction,
   pushInstruction,
   returnInstruction,
   unaryOpInstruction,
+  whileInstruction,
 } from "./instructions";
 import { Type, isFunction } from "../typing/types";
 import { Runtime } from "./runtime";
@@ -90,6 +104,7 @@ import { RuntimeStack } from "./stack";
 import { SHRT_SIZE } from "../constants";
 import { checkSimpleAssignmentConstraint, getMember } from "../typing/utils";
 import { NO_EFFECTIVE_TYPE } from "./effectiveTypeTable";
+import { AgendaItem } from "./agenda";
 
 export const ASTNodeEvaluator: {
   [NodeType in TypedASTNode["type"]]: (
@@ -180,6 +195,12 @@ export const ASTNodeEvaluator: {
     // TODO: conversion as if by assignment
     rt.agenda.push(returnInstruction());
     if (expr) rt.agenda.push(expr);
+  },
+  JumpStatementBreak: (rt: Runtime) => {
+    jumpTill(rt, isBreakMarkInstruction);
+  },
+  JumpStatementContinue: (rt: Runtime) => {
+    jumpTill(rt, isContinueMarkInstruction);
   },
   ExpressionStatement: (rt: Runtime, { value }: TypedExpressionStatement) => {
     if (isEmptyExpressionStatement(value)) return;
@@ -468,6 +489,44 @@ export const ASTNodeEvaluator: {
   ) => {
     if (evaluateAsLvalue) rt.agenda.pushAsLvalue(expr);
     else rt.agenda.push(expr);
+  },
+  SelectionStatementIf: (
+    rt: Runtime,
+    { cond, consequent, alternative }: TypedSelectionStatementIf,
+  ) => {
+    rt.agenda.push(branchInstruction(consequent, alternative));
+    rt.agenda.push(cond);
+  },
+  IterationStatementDoWhile: (
+    rt: Runtime,
+    { cond, body }: TypedIterationStatementDoWhile,
+  ) => {
+    rt.agenda.push(breakMarkInstruction());
+    rt.agenda.push(whileInstruction(cond, body));
+    rt.agenda.push(cond);
+    rt.agenda.push(continueMarkInstruction());
+    rt.agenda.push(body);
+  },
+  IterationStatementWhile: (
+    rt: Runtime,
+    { cond, body }: TypedIterationStatementWhile,
+  ) => {
+    rt.agenda.push(breakMarkInstruction());
+    rt.agenda.push(whileInstruction(cond, body));
+    rt.agenda.push(cond);
+  },
+  IterationStatementFor: (
+    rt: Runtime,
+    { init, controlExpr, afterIterExpr, body }: TypedIterationStatementFor,
+  ) => {
+    rt.agenda.push(breakMarkInstruction());
+    controlExpr = controlExpr === null ? TYPED_CONSTANT_ONE : controlExpr;
+    rt.agenda.push(forInstruction(controlExpr, body, afterIterExpr));
+    rt.agenda.push(controlExpr);
+    if (init !== null) {
+      rt.agenda.push(popInstruction());
+      rt.agenda.push(init);
+    }
   },
 };
 
@@ -851,8 +910,7 @@ export const instructionEvaluator: {
     }
   },
   [InstructionType.RETURN]: (rt: Runtime) => {
-    while (!isMarkInstruction(rt.agenda.peek())) rt.agenda.pop();
-    rt.agenda.pop();
+    jumpTill(rt, isMarkInstruction)
     const block = rt.symbolTable.exitBlock();
     Object.values(block).forEach((addr) => {
       const t = rt.effectiveTypeTable.get(addr);
@@ -875,11 +933,52 @@ export const instructionEvaluator: {
       rt.config.endianness,
     );
     if (n === BigInt(0)) {
-      rt.agenda.push(exprIfFalse);
+      if (exprIfFalse !== null) rt.agenda.push(exprIfFalse);
     } else {
       rt.agenda.push(exprIfTrue);
     }
   },
+  [InstructionType.WHILE]: (rt: Runtime, { cond, body }: WhileInstruction) => {
+    const o = rt.stash.pop();
+    if (!(isTemporaryObject(o) && isScalarType(o.typeInfo)))
+      throw new Error("condition should be of scalar type");
+    const n = bytesToBigint(
+      o.bytes,
+      isSigned(o.typeInfo),
+      rt.config.endianness,
+    );
+    if (n !== BigInt(0)) {
+      rt.agenda.push(whileInstruction(cond, body));
+      rt.agenda.push(cond);
+      rt.agenda.push(continueMarkInstruction());
+      rt.agenda.push(body);
+    }
+  },
+  [InstructionType.FOR]: (
+    rt: Runtime,
+    { cond, body, afterIter }: ForInstruction,
+  ) => {
+    const o = rt.stash.pop();
+    if (!(isTemporaryObject(o) && isScalarType(o.typeInfo)))
+      throw new Error("condition should be of scalar type");
+    const n = bytesToBigint(
+      o.bytes,
+      isSigned(o.typeInfo),
+      rt.config.endianness,
+    );
+    if (n !== BigInt(0)) {
+      rt.agenda.push(forInstruction(cond, body, afterIter));
+      rt.agenda.push(cond);
+      if (afterIter) {
+        rt.agenda.push(popInstruction())
+        rt.agenda.push(afterIter);
+      }
+      rt.agenda.push(continueMarkInstruction());
+      rt.agenda.push(body);
+    }
+  },
+  [InstructionType.BREAK_MARK]: () => {},
+  [InstructionType.CONTINUE_MARK]: () => {},
   [InstructionType.ARITHMETIC_CONVERSION]: (
     rt: Runtime,
     { typeInfo }: ArithmeticConversionInstruction,
@@ -1101,3 +1200,11 @@ const applyImplicitConversions = (t: TypeInfo): TypeInfo => {
   }
   return t;
 };
+
+const jumpTill = (rt: Runtime, pred: (i: AgendaItem) => boolean): void => {
+    while (!pred(rt.agenda.peek())) {
+      const t = rt.agenda.pop();
+      if (isExitBlockInstruction(t)) instructionEvaluator[t.type](rt, t);
+    }
+    rt.agenda.pop();
+}

@@ -1,4 +1,9 @@
-import { BinaryOperator, TypedExpression, UnaryOperator } from "../ast/types";
+import {
+  BinaryOperator,
+  TypedExpression,
+  TypedStatement,
+  UnaryOperator,
+} from "../ast/types";
 import { ArithmeticType, ScalarType, Void } from "../typing/types";
 import { AgendaItem, isInstruction } from "./agenda";
 import { StashItem } from "./stash";
@@ -17,7 +22,11 @@ export enum InstructionType {
   ARITHMETIC_CONVERSION = "ArithmeticConversion",
   CAST = "Cast",
   ARRAY_SUBSCRIPT = "ArraySubscript",
-  EXIT_BLOCK ="ExitBlock"
+  EXIT_BLOCK = "ExitBlock",
+  WHILE = "While",
+  FOR = "For",
+  BREAK_MARK = "BreakMark",
+  CONTINUE_MARK = "ContinueMark",
 }
 
 export interface BaseInstruction {
@@ -80,6 +89,34 @@ export const markInstruction = (): MarkInstruction => ({
   type: InstructionType.MARK,
 });
 
+export interface BreakMarkInstruction extends BaseInstruction {
+  type: InstructionType.BREAK_MARK;
+}
+
+export const breakMarkInstruction = (): BreakMarkInstruction => ({
+  type: InstructionType.BREAK_MARK,
+});
+
+export interface ContinueMarkInstruction extends BaseInstruction {
+  type: InstructionType.CONTINUE_MARK;
+}
+
+export const continueMarkInstruction = (): ContinueMarkInstruction => ({
+  type: InstructionType.CONTINUE_MARK,
+});
+
+export function isBreakMarkInstruction(
+  i: AgendaItem,
+): i is BreakMarkInstruction {
+  return isInstruction(i) && i.type == InstructionType.BREAK_MARK;
+}
+
+export function isContinueMarkInstruction(
+  i: AgendaItem,
+): i is ContinueMarkInstruction {
+  return isInstruction(i) && i.type == InstructionType.CONTINUE_MARK;
+}
+
 export function isMarkInstruction(i: AgendaItem): i is MarkInstruction {
   return isInstruction(i) && i.type == InstructionType.MARK;
 }
@@ -118,13 +155,13 @@ export const isReturnInstruction = (i: AgendaItem): i is ReturnInstruction =>
 
 export interface BranchInstruction extends BaseInstruction {
   type: InstructionType.BRANCH;
-  exprIfTrue: TypedExpression;
-  exprIfFalse: TypedExpression;
+  exprIfTrue: TypedExpression | TypedStatement;
+  exprIfFalse: TypedExpression | TypedStatement | null;
 }
 
 export const branchInstruction = (
-  exprIfTrue: TypedExpression,
-  exprIfFalse: TypedExpression,
+  exprIfTrue: TypedExpression | TypedStatement,
+  exprIfFalse: TypedExpression | TypedStatement | null,
 ): BranchInstruction => ({
   type: InstructionType.BRANCH,
   exprIfTrue,
@@ -168,7 +205,48 @@ export interface ExitBlockInstruction extends BaseInstruction {
   type: InstructionType.EXIT_BLOCK;
 }
 
-export const exitBlockInstruction = () :ExitBlockInstruction => ({type:InstructionType.EXIT_BLOCK});
+export const exitBlockInstruction = (): ExitBlockInstruction => ({
+  type: InstructionType.EXIT_BLOCK,
+});
+
+export function isExitBlockInstruction(
+  i: AgendaItem,
+): i is ExitBlockInstruction {
+  return isInstruction(i) && i.type == InstructionType.EXIT_BLOCK;
+}
+
+export interface WhileInstruction extends BaseInstruction {
+  type: InstructionType.WHILE;
+  cond: TypedExpression;
+  body: TypedStatement;
+}
+
+export const whileInstruction = (
+  cond: TypedExpression,
+  body: TypedStatement,
+): WhileInstruction => ({
+  type: InstructionType.WHILE,
+  cond,
+  body,
+});
+
+export interface ForInstruction extends BaseInstruction {
+  type: InstructionType.FOR;
+  cond: TypedExpression;
+  body: TypedStatement;
+  afterIter: TypedExpression | null;
+}
+
+export const forInstruction = (
+  cond: TypedExpression,
+  body: TypedStatement,
+  afterIter: TypedExpression | null,
+): ForInstruction => ({
+  type: InstructionType.FOR,
+  cond,
+  body,
+  afterIter,
+});
 
 export type Instruction =
   | UnaryOpInstruction
@@ -185,3 +263,7 @@ export type Instruction =
   | CastInstruction
   | ArraySubscriptInstruction
   | ExitBlockInstruction
+  | WhileInstruction
+  | ForInstruction
+  | BreakMarkInstruction
+  | ContinueMarkInstruction;

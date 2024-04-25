@@ -5,6 +5,7 @@ import {
   ScalarType,
   TypeInfo,
   Void,
+  int,
 } from "../typing/types";
 
 export interface PositionInfo {
@@ -27,6 +28,12 @@ export type ASTNode =
   | InitDeclarator
   | CompoundStatement
   | JumpStatementReturn
+  | JumpStatementContinue
+  | JumpStatementBreak
+  | IterationStatementWhile
+  | IterationStatementDoWhile
+  | IterationStatementFor
+  | SelectionStatementIf
   | EmptyExpressionStatement
   | CommaOperator
   | CastExpressionNode
@@ -60,6 +67,12 @@ export type TypedASTNode =
   | TypedefDeclaration
   | TypedCompoundStatement
   | TypedJumpStatementReturn
+  | JumpStatementBreak
+  | JumpStatementContinue
+  | TypedIterationStatementWhile
+  | TypedIterationStatementDoWhile
+  | TypedIterationStatementFor
+  | TypedSelectionStatementIf
   | EmptyExpressionStatement
   | TypedCommaOperator
   | TypedCastExpressionNode
@@ -353,19 +366,34 @@ export type TypedBlockItem =
   | TypedDeclaration
   | TypedefDeclaration;
 
-export type Statement = CompoundStatement | ExpressionStatement | JumpStatement;
+export type Statement =
+  | CompoundStatement
+  | ExpressionStatement
+  | JumpStatement
+  | IterationStatement
+  | SelectionStatement;
 
 export type TypedStatement =
   | TypedCompoundStatement
   | TypedExpressionStatement
-  | TypedJumpStatement;
+  | TypedJumpStatement
+  | TypedIterationStatement
+  | TypedSelectionStatement;
 
-export type JumpStatement = JumpStatementReturn;
+export type JumpStatement =
+  | JumpStatementReturn
+  | JumpStatementContinue
+  | JumpStatementBreak;
 
 export const isJumpStatement = (i: BaseNode): i is JumpStatement =>
-  isJumpStatementReturn(i);
+  isJumpStatementReturn(i) ||
+  isJumpStatementContinue(i) ||
+  isJumpStatementBreak(i);
 
-export type TypedJumpStatement = TypedJumpStatementReturn;
+export type TypedJumpStatement =
+  | TypedJumpStatementReturn
+  | JumpStatementContinue
+  | JumpStatementBreak;
 
 export interface JumpStatementReturn extends BaseNode {
   type: "JumpStatementReturn";
@@ -379,6 +407,141 @@ export interface TypedJumpStatementReturn extends BaseNode {
   type: "JumpStatementReturn";
   value: TypedExpression | null;
 }
+
+export interface JumpStatementContinue extends BaseNode {
+  type: "JumpStatementContinue";
+}
+
+export const isJumpStatementContinue = (
+  i: BaseNode,
+): i is JumpStatementContinue => i.type === "JumpStatementContinue";
+
+export interface JumpStatementBreak extends BaseNode {
+  type: "JumpStatementBreak";
+}
+
+export const isJumpStatementBreak = (i: BaseNode): i is JumpStatementBreak =>
+  i.type === "JumpStatementBreak";
+
+export type IterationStatement =
+  | IterationStatementWhile
+  | IterationStatementDoWhile
+  | IterationStatementFor;
+
+export const isIterationStatement = (i: BaseNode): i is IterationStatement =>
+  isIterationStatementWhile(i) ||
+  isIterationStatementDoWhile(i) ||
+  isIterationStatementFor(i);
+
+export type TypedIterationStatement =
+  | TypedIterationStatementWhile
+  | TypedIterationStatementDoWhile
+  | TypedIterationStatementFor;
+
+export const isTypedIterationStatement = (
+  i: TypedStatement,
+): i is TypedIterationStatement =>
+  isTypedIterationStatementWhile(i) ||
+  isTypedIterationStatementDoWhile(i) ||
+  isTypedIterationStatementFor(i);
+
+export interface IterationStatementWhile extends BaseNode {
+  type: "IterationStatementWhile";
+  cond: Expression;
+  body: Statement;
+}
+
+export const isIterationStatementWhile = (
+  i: BaseNode,
+): i is IterationStatementWhile => i.type === "IterationStatementWhile";
+
+export interface TypedIterationStatementWhile extends BaseNode {
+  type: "IterationStatementWhile";
+  cond: TypedExpression;
+  body: TypedStatement;
+}
+
+export const isTypedIterationStatementWhile = (
+  i: TypedStatement,
+): i is TypedIterationStatementWhile => i.type === "IterationStatementWhile";
+
+export interface IterationStatementDoWhile extends BaseNode {
+  type: "IterationStatementDoWhile";
+  cond: Expression;
+  body: Statement;
+}
+
+export const isIterationStatementDoWhile = (
+  i: BaseNode,
+): i is IterationStatementDoWhile => i.type === "IterationStatementDoWhile";
+
+export interface TypedIterationStatementDoWhile extends BaseNode {
+  type: "IterationStatementDoWhile";
+  cond: TypedExpression;
+  body: TypedStatement;
+}
+
+export const isTypedIterationStatementDoWhile = (
+  i: TypedStatement,
+): i is TypedIterationStatementDoWhile =>
+  i.type === "IterationStatementDoWhile";
+
+export interface IterationStatementFor extends BaseNode {
+  type: "IterationStatementFor";
+  init: Expression | Declaration | null;
+  controlExpr: Expression | null;
+  afterIterExpr: Expression | null;
+  body: Statement;
+}
+
+export const isIterationStatementFor = (
+  i: BaseNode,
+): i is IterationStatementFor => i.type === "IterationStatementFor";
+
+export interface TypedIterationStatementFor extends BaseNode {
+  type: "IterationStatementFor";
+  init: TypedExpression | null;
+  controlExpr: TypedExpression | null;
+  afterIterExpr: TypedExpression | null;
+  body: TypedStatement;
+}
+
+export const isTypedIterationStatementFor = (
+  i: TypedStatement,
+): i is TypedIterationStatementFor => i.type === "IterationStatementFor";
+
+export type SelectionStatement = SelectionStatementIf;
+
+export const isSelectionStatement = (i: BaseNode): i is SelectionStatement =>
+  isSelectionStatementIf(i);
+
+export type TypedSelectionStatement = TypedSelectionStatementIf;
+
+export const isTypedSelectionStatement = (
+  i: TypedStatement,
+): i is TypedSelectionStatement => isTypedSelectionStatementIf(i);
+
+export interface SelectionStatementIf extends BaseNode {
+  type: "SelectionStatementIf";
+  cond: Expression;
+  consequent: Statement;
+  alternative: Statement | null;
+}
+
+export const isSelectionStatementIf = (
+  i: BaseNode,
+): i is SelectionStatementIf => i.type === "SelectionStatementIf";
+
+export interface TypedSelectionStatementIf extends BaseNode {
+  type: "SelectionStatementIf";
+  cond: TypedExpression;
+  consequent: TypedStatement;
+  alternative: TypedStatement | null;
+}
+
+export const isTypedSelectionStatementIf = (
+  i: TypedStatement,
+): i is TypedSelectionStatementIf => i.type === "SelectionStatementIf";
 
 export interface ExpressionStatement extends BaseNode {
   type: "ExpressionStatement";
@@ -790,6 +953,24 @@ export interface TypedPrimaryExprConstant extends TypedExpressionBaseNode {
 export const isTypedPrimaryExprConstant = (
   expr: TypedExpression,
 ): expr is TypedPrimaryExprConstant => expr.type === "PrimaryExprConstant";
+
+export const TYPED_CONSTANT_ONE: TypedPrimaryExprConstant = {
+  type: "PrimaryExprConstant",
+  start: { offset: 0, line: 0, column: 0 },
+  end: { offset: 1, line: 0, column: 1 },
+  src: "1",
+  typeInfo: int(),
+  lvalue: false,
+  value: {
+    type: "IntegerConstant",
+    start: { offset: 0, line: 0, column: 0 },
+    end: { offset: 1, line: 0, column: 1 },
+    src: "1",
+    typeInfo: int(),
+    lvalue: false,
+    value: BigInt(1),
+  },
+};
 
 export interface PrimaryExprString extends BaseNode {
   type: "PrimaryExprString";

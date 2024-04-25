@@ -3,6 +3,8 @@ import {
   TypedCompoundStatement,
   isTypedCompoundStatement,
   isTypedDeclaration,
+  isTypedIterationStatement,
+  isTypedSelectionStatement,
   isTypedefDeclaration,
 } from "../ast/types";
 import { ObjectTypeInfo, ParameterTypeAndIdentifier } from "../typing/types";
@@ -88,6 +90,12 @@ export class RuntimeStack extends Stack<StackFrame> {
     const identifierPrefix: string[] = [];
     const scan = (stmts: TypedCompoundStatement): void => {
       let blockNo = 0;
+      const scanBlock = (b: TypedCompoundStatement) => {
+        identifierPrefix.push("block" + blockNo);
+        scan(b);
+        identifierPrefix.pop();
+        blockNo++;
+      };
       stmts.value.forEach((i) => {
         if (isTypedDeclaration(i)) {
           i.declaratorList.forEach((j) => {
@@ -101,11 +109,17 @@ export class RuntimeStack extends Stack<StackFrame> {
             res[qid] = { address: ptr, typeInfo };
             ptr += typeInfo.size;
           });
-        } else if (!isTypedefDeclaration(i) && isTypedCompoundStatement(i)) {
-          identifierPrefix.push("block" + blockNo);
-          scan(i);
-          identifierPrefix.pop();
-          blockNo++;
+        } else if (!isTypedefDeclaration(i)) {
+          if (isTypedCompoundStatement(i)) scanBlock(i);
+          else if (isTypedSelectionStatement(i)) {
+            if (isTypedCompoundStatement(i.consequent)) scanBlock(i.consequent);
+            if (i.alternative && isTypedCompoundStatement(i.alternative))
+              scanBlock(i.alternative);
+          } else if (
+            isTypedIterationStatement(i) &&
+            isTypedCompoundStatement(i.body)
+          )
+            scanBlock(i.body);
         }
       });
     };

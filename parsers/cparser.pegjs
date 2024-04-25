@@ -1254,9 +1254,7 @@ Statement
   / CompoundStatement
   / ExpressionStatement
   / SelectionStatement
-    { throwNotImplemented("if/else and switch"); }
   / IterationStatement
-    { throwNotImplemented("while and for loops"); }
   / JumpStatement
 
 // (6.8.1) labeled-statement
@@ -1299,17 +1297,14 @@ SelectionStatement
     )?
     {
       return makeNode("SelectionStatementIf", {
-        expr: a,
-        statement: b,
-        elseStatement: c
+        cond: a,
+        consequent: b,
+        alternative: c
       });
     }
   / SWITCH LPAR a:Expression RPAR b:Statement
     {
-      return makeNode("SelectionStatementSwitch", {
-        expr: a,
-        statement: b
-      });
+      throwNotImplemented("switch statements");
     }
 
 // (6.8.5) iteration-statement
@@ -1317,36 +1312,36 @@ IterationStatement
   = WHILE LPAR a:Expression RPAR b:Statement
     {
       return makeNode("IterationStatementWhile", {
-        expr: a,
-        statement: b
+        cond: a,
+        body: b
       });
     }
   / DO a:Statement WHILE
     LPAR b:Expression RPAR SEMI
     {
       return makeNode("IterationStatementDoWhile", {
-        expr: b,
-        statement: a
+        cond: b,
+        body: a
       });
     }
   / FOR LPAR a:Expression? SEMI b:Expression?
     SEMI c:Expression? RPAR d:Statement
     {
       return makeNode("IterationStatementFor", {
-        initExpr: a,
+        init: a,
         controlExpr: b,
         afterIterExpr: c,
-        statement: d
+        body: d
       });
     }
   / FOR LPAR a:Declaration b:Expression?
     SEMI c:Expression? RPAR d:Statement
     {
-      return makeNode("IterationStatementForDeclaration", {
-        declaration: a,
+      return makeNode("IterationStatementFor", {
+        init: a,
         controlExpr: b,
         afterIterExpr: c,
-        statement: d
+        body: d
       });
     }
 
@@ -1355,11 +1350,9 @@ JumpStatement
   = GOTO a:Identifier SEMI
     { throwNotImplemented("goto"); }
   / CONTINUE SEMI
-    { throwNotImplemented("while loops"); }
-    // { return makeNode("JumpStatementContinue"); }
+    { return makeNode("JumpStatementContinue"); }
   / BREAK SEMI
-    { throwNotImplemented("while loops"); }
-    // { return makeNode("JumpStatementBreak"); }
+    { return makeNode("JumpStatementBreak"); }
   / RETURN a:Expression? SEMI
     { return makeNode("JumpStatementReturn", a); }
 

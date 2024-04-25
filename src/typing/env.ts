@@ -13,10 +13,12 @@ const TAG_PREFIX = "tag::";
 export class TypeEnv {
   private env: Record<Identifier, [TypeInfo, boolean]>[];
   public readonly aggTypes: AggregateType[];
+  private _inLoopBody: boolean;
 
   constructor() {
     this.env = [{}];
     this.aggTypes = [];
+    this._inLoopBody = false;
     for (const [identifier, f] of Object.entries(BUILTIN_FUNCTIONS)) {
       this.addIdentifierTypeInfo(identifier, f.type);
     }
@@ -29,6 +31,18 @@ export class TypeEnv {
   exitBlock(): void {
     if (this.env.length === 1) throw new RangeError("no block to exit");
     this.env.pop();
+  }
+
+  enterLoopBody(): void {
+    this._inLoopBody = true;
+  }
+
+  exitLoopBody(): void {
+    this._inLoopBody = false;
+  }
+
+  get inLoopBody(): boolean {
+    return this._inLoopBody;
   }
 
   getIdentifierTypeInfo(id: Identifier, isTypedef: boolean = false): TypeInfo {
