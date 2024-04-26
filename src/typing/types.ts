@@ -45,6 +45,8 @@ export enum Type {
   Structure = "struct",
   Function = "fn",
   Pointer = "ptr",
+
+  _Any = "any object", // hack for inbuilt print function
 }
 
 export const getTypeName = (i: TypeInfo): string => {
@@ -73,7 +75,8 @@ export type ObjectType =
   | Type.UnsignedLongLongInt
   | Type.Array
   | Type.Structure
-  | Type.Pointer;
+  | Type.Pointer
+  | Type._Any;
 
 export type IncompleteType = Type.Void;
 
@@ -174,6 +177,19 @@ export interface ObjectTypeInfo extends BaseTypeInfo {
 
 export const isObjectTypeInfo = (i: BaseTypeInfo): i is ObjectTypeInfo =>
   !isIncompleteTypeInfo(i) && !isFunctionTypeInfo(i);
+
+export interface _Any extends BaseTypeInfo {
+  type: Type._Any;
+  size: -1;
+  alignment: -1;
+}
+
+export const _any = (): _Any => ({
+  type: Type._Any,
+  size: -1,
+  alignment: -1,
+  isCompatible: () => false,
+});
 
 export interface _Bool extends ObjectTypeInfo {
   type: Type._Bool;

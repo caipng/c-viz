@@ -12,9 +12,14 @@ export interface MemoryConfig {
 
 export type Endianness = "little" | "big";
 
+export interface UBConfig {
+  skipStrictAliasingCheck: boolean;
+}
+
 export interface RuntimeConfig {
   memory: MemoryConfig;
   endianness: Endianness;
+  UB: UBConfig;
 }
 
 export const DEFAULT_CONFIG: RuntimeConfig = {
@@ -37,4 +42,7 @@ export const DEFAULT_CONFIG: RuntimeConfig = {
     },
   },
   endianness: "little",
+  UB: {
+    skipStrictAliasingCheck: false,
+  },
 };

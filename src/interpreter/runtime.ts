@@ -47,6 +47,7 @@ export class RuntimeView {
   heapMemUsage: number;
   effectiveTypeTable: Record<number, EffectiveTypeTableEntry>;
   initTable: InitializedTable;
+  stdout: string;
 
   constructor(rt: Runtime) {
     this.agenda = rt.agenda.getArr();
@@ -66,6 +67,7 @@ export class RuntimeView {
     this.heapMemUsage = rt.heap.memUsage;
     this.effectiveTypeTable = rt.effectiveTypeTable.getTable();
     this.initTable = cloneDeep(rt.initTable);
+    this.stdout = rt.stdout;
   }
 }
 
@@ -85,6 +87,7 @@ export class Runtime {
   private functions: [string, TypedCompoundStatement, FunctionType][];
   private builtinFunctions: BuiltinFunction[];
   private _exitCode: number | undefined;
+  private _stdout: string;
   private _dataPtr: number;
   private _textPtr: number;
 
@@ -95,7 +98,11 @@ export class Runtime {
     this.symbolTable = new SymbolTable();
     this.config = config;
     this.effectiveTypeTable = new EffectiveTypeTable();
-    this.memory = new Memory(config.memory, this.effectiveTypeTable);
+    this.memory = new Memory(
+      config.memory,
+      this.effectiveTypeTable,
+      config.UB.skipStrictAliasingCheck,
+    );
     this.stack = new RuntimeStack(config.memory.stack.baseAddress);
     this.functionCalls = new Stack();
     this.heap = new Heap(
@@ -107,6 +114,7 @@ export class Runtime {
     this.functions = [];
     this.builtinFunctions = [];
     this._exitCode = undefined;
+    this._stdout = "";
     this._dataPtr = config.memory.data.baseAddress;
     this._textPtr = config.memory.text.baseAddress;
 
@@ -145,6 +153,14 @@ export class Runtime {
 
   public get exitCode() {
     return this._exitCode;
+  }
+
+  public appendToStdout(s: string) {
+    this._stdout += s;
+  }
+
+  public get stdout() {
+    return this._stdout;
   }
 
   public addFunction(
