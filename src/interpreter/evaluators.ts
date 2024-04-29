@@ -190,10 +190,16 @@ export const ASTNodeEvaluator: {
   },
   JumpStatementReturn: (
     rt: Runtime,
-    { value: expr }: TypedJumpStatementReturn,
+    { value: expr, expectedReturnType }: TypedJumpStatementReturn,
   ) => {
     rt.agenda.push(returnInstruction());
-    if (expr) rt.agenda.push(expr);
+    if (expr) {
+		if (!expr.typeInfo.isCompatible(expectedReturnType))
+			// not possible to be void as expr is not null
+			// not possible to be a struct that is not compatible as type check would fail
+			rt.agenda.push(castInstruction(expectedReturnType as ScalarType));
+		rt.agenda.push(expr);
+	}
   },
   JumpStatementBreak: (rt: Runtime) => {
     jumpTill(rt, isBreakMarkInstruction);

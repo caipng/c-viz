@@ -492,7 +492,7 @@ const typeJumpStatementReturn = (
     if (isVoid(expectedReturnType)) {
       if (t.value)
         throw "non-empty return statement in function declared with void return type";
-      return { ...t, value: null };
+      return { ...t, value: null, expectedReturnType };
     }
 
     if (!t.value)
@@ -508,7 +508,7 @@ const typeJumpStatementReturn = (
     )
       throw "wrong return type";
 
-    return { ...t, value: expr };
+    return { ...t, value: expr, expectedReturnType };
   });
 
 const typeIterationStatement = (

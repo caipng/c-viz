@@ -6,6 +6,7 @@ import {
   TypeInfo,
   Void,
   int,
+  FunctionReturnType
 } from "../typing/types";
 
 export interface PositionInfo {
@@ -406,6 +407,7 @@ export const isJumpStatementReturn = (i: BaseNode): i is JumpStatementReturn =>
 export interface TypedJumpStatementReturn extends BaseNode {
   type: "JumpStatementReturn";
   value: TypedExpression | null;
+  expectedReturnType: FunctionReturnType;
 }
 
 export interface JumpStatementContinue extends BaseNode {
